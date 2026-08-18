@@ -2,42 +2,31 @@
  * ============================================================
  * PENGATURAN ACARA — ubah di sini saja
  * ============================================================
- * Tidak ada form "buat acara". Semua diatur lewat coding.
- * Setelah diubah → restart `npm run dev` (atau rebuild & deploy).
  */
 
 export const EVENT_CONFIG = {
-  /** Nama acara (tampil besar dengan font serif italic) */
+  /** Nama acara (judul besar, font serif italic) */
   name: 'Our Wedding Day',
 
   /** Nama host / yang mengundang */
   hostName: 'Aji Sasmito',
 
   /**
-   * Batas foto per tamu (per nama di perangkat ini).
-   * Mirip "10 foto tersedia" di satualbum.
+   * UUID event di tabel Supabase `events`.
+   * Diisi setelah menjalankan SQL "seed event" di README.
+   * Contoh: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
    */
+  eventId: 'df5e8e86-c30f-4ce0-8b1a-ba57750870f3' as string,
+
+  /** Maksimal foto per nama tamu */
   maxPhotosPerGuest: 10,
 
   /**
-   * Waktu berakhir acara (ISO string atau null).
-   * null = tidak ada countdown / tanpa batas waktu.
+   * Waktu berakhir (ISO) atau null = tanpa countdown.
    * Contoh: '2026-08-25T22:00:00+07:00'
    */
   endsAt: null as string | null,
 
-  /** Preset film default saat kamera dibuka */
+  /** Filter default saat kamera dibuka */
   defaultPresetId: 'funsaver',
-
-  /**
-   * Mode simpan foto:
-   * - 'local'    → IndexedDB di browser, bisa lihat di Album
-   * - 'download' → langsung unduh tiap foto
-   */
-  saveMode: 'local' as 'local' | 'download',
-
-  /**
-   * Apakah foto langsung terlihat di album.
-   */
-  photosVisibleImmediately: true,
 };

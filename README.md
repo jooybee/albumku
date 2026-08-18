@@ -1,46 +1,93 @@
-# Albumku — Kamera Film Pribadi (mirip satualbum.id)
+# Albumku — Kamera Film (mirip satualbum.id)
 
-Versi pribadi tanpa login, tanpa pembayaran, tanpa form "buat acara".
+Tanpa login tamu · pengaturan lewat coding · album bersama via Supabase.
 
-Tampilan join page & kamera mengikuti gaya satualbum.id (dark, Instrument Serif, cream button).
+## Cocok dengan Supabase yang sudah ada
 
-## Fitur
+Kamu **tidak perlu** drop tabel `events` / `photos`. Cukup migrasi kecil + seed 1 event.
 
-- Halaman masuk mirip `/events/...` satualbum (nama, host, countdown, jumlah foto)
-- Kamera browser + **ganti filter di dalam kamera** (FunSaver, QuickSnap, Portra, Ektar, HP5, CineStill)
-- Semua pengaturan lewat `src/lib/config.ts`
-- Foto tersimpan lokal (IndexedDB) atau langsung unduh
-- Galeri lokal
+### SQL yang aman (jalankan di SQL Editor)
 
-## Setup
+```sql
+-- 1) Tambah kolom preset (abaikan error jika kolom sudah ada)
+alter table public.photos add column if not exists preset_id text;
+alter table public.photos add column if not exists preset_name text;
 
-```bash
-npm install
-npm run dev
+-- 2) Policy hapus foto (opsional, jika belum ada)
+do $$
+begin
+  if not exists (
+    select 1 from pg_policies
+    where tablename = 'photos' and policyname = 'Public delete photos'
+  ) then
+    create policy "Public delete photos"
+      on public.photos for delete using (true);
+  end if;
+end $$;
+
+-- 3) Seed 1 event pribadi — salin `id` yang keluar ke config.ts
+insert into public.events (slug, name, preset_id, max_photos_per_guest, host_token, is_revealed)
+values (
+  'albumku-pribadi',
+  'Our Wedding Day',
+  'funsaver',
+  10,
+  'personal-host-token',
+  true
+)
+on conflict (slug) do update set name = excluded.name
+returning id, slug, name;
 ```
 
-Buka http://localhost:4321
+Hasil query `returning id` → salin UUID-nya.
 
-> Kamera hanya jalan di **localhost** atau **HTTPS**.
-
-## Pengaturan acara
-
-Edit `src/lib/config.ts`:
+### Isi di `src/lib/config.ts`
 
 ```ts
 export const EVENT_CONFIG = {
   name: 'Our Wedding Day',
   hostName: 'Aji Sasmito',
+  eventId: 'TEMPLEKAN-UUID-DARI-SQL-DI-SINI',
   maxPhotosPerGuest: 10,
-  endsAt: null,              // atau '2026-08-25T22:00:00+07:00'
+  endsAt: null,
   defaultPresetId: 'funsaver',
-  saveMode: 'local',         // 'local' | 'download'
 };
 ```
 
-## Deploy
+### Env
 
 ```bash
-npm run build
-npx vercel
+# .env (lokal) + Vercel Environment Variables
+PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
+PUBLIC_SUPABASE_ANON_KEY=eyJ...
 ```
+
+Storage policy yang sudah kamu punya (`Allow public upload` / `Allow public read`) **sudah cukup**. Bucket `photos` harus **public**.
+
+## Setup project
+
+```bash
+npm install
+cp .env.example .env   # isi URL + key
+# isi eventId di config.ts
+npm run dev
+```
+
+## Deploy GitHub → Vercel
+
+1. Push repo
+2. Import di Vercel (Astro)
+3. Environment Variables: `PUBLIC_SUPABASE_URL`, `PUBLIC_SUPABASE_ANON_KEY`
+4. Deploy
+
+## Tanpa Supabase / tanpa eventId
+
+App tetap jalan (mode lokal IndexedDB) — foto **tidak** saling terlihat antar HP.
+
+## Struktur yang dipakai
+
+| Tabel | Dipakai? |
+|---|---|
+| `events` | Ya — 1 baris event, `id`-nya di `config.eventId` |
+| `photos` | Ya — `event_id`, `guest_name`, `storage_path`, `public_url`, `preset_id`, `preset_name` |
+| storage bucket `photos` | Ya — path `{eventId}/{file}.jpg` |

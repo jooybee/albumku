@@ -108,7 +108,7 @@ export default function JoinScreen() {
       </div>
 
       <p className="support">
-        Penggunaan pribadi · Tanpa login
+        Tanpa login · Foto bersama di album
       </p>
 
       <style>{`

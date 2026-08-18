@@ -1,5 +1,5 @@
 {
-  "name": "satualbum-personal",
+  "name": "albumku",
   "type": "module",
   "version": "1.0.0",
   "scripts": {
@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@astrojs/react": "^4.2.0",
+    "@supabase/supabase-js": "^2.49.0",
     "astro": "^5.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

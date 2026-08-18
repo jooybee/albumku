@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FILM_PRESETS, getPreset, type FilmPreset } from '../lib/presets';
 import { EVENT_CONFIG } from '../lib/config';
-import { savePhoto } from '../lib/storage';
+import { savePhoto, isCloudEnabled } from '../lib/storage';
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -175,25 +175,21 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
     setLastPreview(dataUrl);
 
     try {
-      if (EVENT_CONFIG.saveMode === 'download') {
-        const a = document.createElement('a');
-        a.href = dataUrl;
-        a.download = `film-${preset.id}-${Date.now()}.jpg`;
-        a.click();
-      } else {
-        await savePhoto({
-          id: uid(),
-          guestName,
-          dataUrl,
-          presetId: preset.id,
-          presetName: `${preset.brand} ${preset.name}`,
-          createdAt: Date.now(),
-        });
-      }
+      const blob: Blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('blob failed'))), 'image/jpeg', 0.9);
+      });
+
+      await savePhoto({
+        guestName,
+        blob,
+        dataUrl,
+        presetId: preset.id,
+        presetName: `${preset.brand} ${preset.name}`,
+      });
       setCount((c) => c + 1);
     } catch (err) {
       console.error(err);
-      alert('Gagal menyimpan foto');
+      alert('Gagal menyimpan foto. Cek koneksi / setup Supabase.');
     } finally {
       setTaking(false);
       setTimeout(() => setLastPreview(null), 800);
