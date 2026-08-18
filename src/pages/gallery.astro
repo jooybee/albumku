@@ -1,0 +1,52 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Gallery from '../components/Gallery';
+import { EVENT_CONFIG } from '../lib/config';
+---
+
+<Layout title={`Album — ${EVENT_CONFIG.name}`}>
+  <main class="page">
+    <header class="header">
+      <a href="/" class="back">← Kamera</a>
+      <h1 class="title">{EVENT_CONFIG.name}</h1>
+      <p class="sub">Album · tersimpan di perangkat ini</p>
+    </header>
+
+    <div class="container">
+      <Gallery client:only="react" />
+    </div>
+  </main>
+</Layout>
+
+<style>
+  .page {
+    min-height: 100dvh;
+    padding: 20px 0 48px;
+    background: #0a0a0a;
+  }
+  .header {
+    text-align: center;
+    margin-bottom: 28px;
+    padding: 0 16px;
+    position: relative;
+  }
+  .back {
+    position: absolute;
+    left: 16px;
+    top: 4px;
+    font-size: 0.85rem;
+    color: #8a8580;
+  }
+  .title {
+    font-family: var(--font-serif);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 1.6rem;
+    color: #f5f0eb;
+  }
+  .sub {
+    font-size: 0.8rem;
+    color: #5c5854;
+    margin-top: 4px;
+  }
+</style>
