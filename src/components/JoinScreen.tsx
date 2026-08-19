@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { EVENT_CONFIG } from '../lib/config';
+import { loadSettings, type EventSettings } from '../lib/settings';
 import Camera from './Camera';
 import { getPhotoCount, getAllPhotos, savePhoto, photoSrc, type StoredPhoto } from '../lib/storage';
 import { getPreset } from '../lib/presets';
@@ -25,30 +26,37 @@ export default function JoinScreen() {
   const [step, setStep] = useState<Step>('join');
   const [count, setCount] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
-  const [remaining, setRemaining] = useState(formatRemaining(EVENT_CONFIG.endsAt));
+  const [remaining, setRemaining] = useState<string | null>(null);
   const [coverIndex, setCoverIndex] = useState(0);
   const [importing, setImporting] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [recent, setRecent] = useState<StoredPhoto[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
-  const covers = EVENT_CONFIG.coverImages?.length
-    ? EVENT_CONFIG.coverImages
-    : ['/covers/cover1.svg'];
+  const [settings, setSettings] = useState<EventSettings | null>(null);
+  const covers = (settings?.coverImages?.length
+    ? settings.coverImages
+    : EVENT_CONFIG.coverImages?.length
+      ? EVENT_CONFIG.coverImages
+      : ['/covers/cover1.svg']);
+  const eventName = settings?.name || EVENT_CONFIG.name;
+  const hostName = settings?.hostName || EVENT_CONFIG.hostName;
+  const maxPhotos = settings?.maxPhotosPerGuest ?? EVENT_CONFIG.maxPhotosPerGuest;
+  const endsAt = settings?.endsAt ?? EVENT_CONFIG.endsAt;
 
   useEffect(() => {
+    setSettings(loadSettings());
     const saved = localStorage.getItem('guest_name');
-    if (saved) {
-      setName(saved);
-      // auto hub if already named
-    }
+    if (saved) setName(saved);
   }, []);
 
   useEffect(() => {
-    if (!EVENT_CONFIG.endsAt) return;
-    const t = setInterval(() => setRemaining(formatRemaining(EVENT_CONFIG.endsAt)), 60_000);
-    return () => clearInterval(t);
-  }, []);
+    if (!settings) return;
+    setRemaining(formatRemaining(settings.endsAt));
+    if (!settings.endsAt) return;
+    const id = setInterval(() => setRemaining(formatRemaining(settings.endsAt)), 60_000);
+    return () => clearInterval(id);
+  }, [settings]);
 
   useEffect(() => {
     if (covers.length < 2) return;
@@ -90,8 +98,8 @@ export default function JoinScreen() {
       for (const file of Array.from(files)) {
         if (!file.type.startsWith('image/')) continue;
         const current = await getPhotoCount(guestName);
-        if (current + done >= EVENT_CONFIG.maxPhotosPerGuest) {
-          alert(`Batas ${EVENT_CONFIG.maxPhotosPerGuest} foto tercapai`);
+        if (current + done >= maxPhotos) {
+          alert(`Batas ${maxPhotos} foto tercapai`);
           break;
         }
         const dataUrl = await readFileAsDataURL(file);
@@ -146,11 +154,11 @@ export default function JoinScreen() {
 
         <header className="hub-top">
           <button className="icon-btn" onClick={() => setStep('join')} aria-label="Kembali">←</button>
-          <button className="icon-btn" aria-label="Pengaturan" onClick={() => alert('Ubah pengaturan di src/lib/config.ts')}>⚙</button>
+          <button className="icon-btn" aria-label="Pengaturan" onClick={() => { window.location.href = '/settings'; }}>⚙</button>
         </header>
 
         <div className="hub-body">
-          <h1 className="hub-title">{EVENT_CONFIG.name}</h1>
+          <h1 className="hub-title">{eventName}</h1>
 
           <div className="hub-stats">
             <div className="stat">
@@ -162,7 +170,7 @@ export default function JoinScreen() {
               <span>Tersisa</span>
             </div>
             <div className="stat">
-              <strong>{count}/{EVENT_CONFIG.maxPhotosPerGuest}</strong>
+              <strong>{count}/{maxPhotos}</strong>
               <span>Roll-mu</span>
             </div>
           </div>
@@ -183,8 +191,8 @@ export default function JoinScreen() {
           {/* Photo grid or empty */}
           {recent.length === 0 ? (
             <div className="hub-empty">
-              <p className="empty-title">Belum ada foto</p>
-              <p className="empty-sub">Ambil foto atau unggah dari galeri untuk memulai</p>
+              <p className="empty-title">Belum ada momen</p>
+              <p className="empty-sub">Abadikan momen pertama — foto dari kamera atau unggah dari galeri</p>
             </div>
           ) : (
             <div className="hub-grid">
@@ -196,7 +204,7 @@ export default function JoinScreen() {
             </div>
           )}
 
-          <a href="/gallery" className="hub-album-link">Lihat semua foto →</a>
+          <a href="/gallery" className="hub-album-link">Lihat album bersama →</a>
         </div>
 
         {/* QR bottom sheet */}
@@ -204,10 +212,9 @@ export default function JoinScreen() {
           <div className="sheet-backdrop" onClick={() => setShowQr(false)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-handle" />
-              <h2 className="sheet-title">Undang tamu ke acaramu.</h2>
+              <h2 className="sheet-title">Abadikan momen bersama.</h2>
               <p className="sheet-sub">
-                Lihat dunia dari sudut pandang mereka.
-                <br />Undang tamumu untuk membuat acara ini tak terlupakan.
+                Setiap tamu bisa ambil foto dari sudut pandang mereka.<br />Semua momen terkumpul di satu album bersama.
               </p>
               <div className="qr-wrap">
                 <img src={qrSrc} alt="QR" width={220} height={220} />
@@ -236,8 +243,8 @@ export default function JoinScreen() {
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-handle" />
               <div className="upload-icon-wrap"><UploadIcon large /></div>
-              <h2 className="sheet-title">Unggah foto</h2>
-              <p className="sheet-sub">Foto akan diunggah dalam resolusi penuh.</p>
+              <h2 className="sheet-title">Unggah momen</h2>
+              <p className="sheet-sub">Foto dari galerimu akan masuk ke album bersama.</p>
               <div className="upload-opt">
                 <span className="radio-on" />
                 <div>
@@ -280,11 +287,11 @@ export default function JoinScreen() {
       <div className="lang-badge">ID</div>
 
       <div className="join-body">
-        <div className="host-pill">👤 Diundang oleh {EVENT_CONFIG.hostName}</div>
-        <h1 className="join-title">{EVENT_CONFIG.name}</h1>
+        <div className="host-pill">👤 Diundang oleh {hostName}</div>
+        <h1 className="join-title">{eventName}</h1>
         <div className="join-meta">
           {remaining && <span>🕐 {remaining} tersisa</span>}
-          <span>📷 {EVENT_CONFIG.maxPhotosPerGuest} foto tersedia</span>
+          <span>📷 {maxPhotos} foto tersedia</span>
         </div>
 
         <form onSubmit={handleJoin} className="join-form">
@@ -300,11 +307,11 @@ export default function JoinScreen() {
             />
           </div>
           <button type="submit" className="btn-primary" disabled={!name.trim()}>
-            Masuk ke album →
+            Abadikan momen →
           </button>
         </form>
         <a href="/gallery" className="btn-outline" style={{ marginTop: 12 }}>
-          Lihat album saja
+          Lihat album bersama
         </a>
       </div>
       <style>{joinCss}</style>

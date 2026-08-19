@@ -8,14 +8,26 @@ import {
   type StoredPhoto,
 } from '../lib/storage';
 import { EVENT_CONFIG } from '../lib/config';
+import { loadSettings } from '../lib/settings';
 
 const sharedAlbum = isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
+  const [settings, setSettings] = useState(() =>
+    typeof window !== 'undefined' ? loadSettings() : null
+  );
+  const hideName = settings?.hideUploaderName ?? false;
+  const publicAlbum = settings?.publicAlbum ?? true;
+  const enableLikes = settings?.enableLikes ?? false;
 
 export default function Gallery() {
   const [photos, setPhotos] = useState<StoredPhoto[]>([]);
+  const [myName, setMyName] = useState('');
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<StoredPhoto | null>(null);
   const [filterGuest, setFilterGuest] = useState<string | 'all'>('all');
+
+  useEffect(() => {
+    setMyName(localStorage.getItem('guest_name') || '');
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,16 +49,35 @@ export default function Gallery() {
   }, [load]);
 
   const guests = Array.from(new Set(photos.map((p) => p.guestName)));
+  let basePhotos = photos;
+  if (!publicAlbum && myName) {
+    basePhotos = photos.filter((p) => p.guestName === myName);
+  }
   const visible =
-    filterGuest === 'all' ? photos : photos.filter((p) => p.guestName === filterGuest);
+    filterGuest === 'all' ? basePhotos : basePhotos.filter((p) => p.guestName === filterGuest);
 
   async function handleClear() {
-    if (!confirm('Hapus semua foto album ini?')) return;
-    await clearAllPhotos();
-    setPhotos([]);
+    // Hanya hapus foto milik nama ini (bukan seluruh album)
+    if (!myName) {
+      alert('Masuk dengan namamu dulu untuk mengelola foto.');
+      return;
+    }
+    if (!confirm(`Hapus fotoku foto atas nama "${myName}"? Foto tamu lain tetap aman.`)) return;
+    const mine = photos.filter((p) => p.guestName === myName);
+    for (const p of mine) {
+      await deletePhoto(p.id);
+    }
+    setPhotos((prev) => prev.filter((p) => p.guestName !== myName));
   }
 
   async function handleDelete(id: string) {
+    const photo = photos.find((p) => p.id === id);
+    if (!photo) return;
+    if (myName && photo.guestName !== myName) {
+      alert('Kamu hanya bisa menghapus foto atas namamu sendiri.');
+      return;
+    }
+    if (!confirm('Hapus foto ini?')) return;
     await deletePhoto(id);
     setPhotos((prev) => prev.filter((p) => p.id !== id));
     if (selected?.id === id) setSelected(null);
@@ -73,10 +104,10 @@ export default function Gallery() {
     return (
       <div className="g-empty">
         <p className="empty-icon">🎞️</p>
-        <p className="empty-title">Belum ada foto</p>
+        <p className="empty-title">Belum ada momen</p>
         <p className="empty-sub">
           {sharedAlbum
-            ? 'Foto dari semua tamu akan muncul di sini'
+            ? 'Momen dari semua tamu akan muncul di sini'
             : 'Mode lokal — hanya foto di perangkat ini'}
         </p>
         <a href="/" className="btn-primary" style={{ marginTop: 24, maxWidth: 240 }}>
@@ -122,7 +153,7 @@ export default function Gallery() {
           ↻ Refresh
         </button>
         <button className="chip danger" onClick={handleClear}>
-          Hapus semua
+          Hapus fotoku
         </button>
       </div>
 
@@ -131,7 +162,7 @@ export default function Gallery() {
           <button key={photo.id} className="photo-card" onClick={() => setSelected(photo)}>
             <img src={photoSrc(photo)} alt={photo.presetName} loading="lazy" />
             <div className="photo-meta">
-              <span className="photo-guest">{photo.guestName}</span>
+              <span className="photo-guest">{hideName ? 'Tamu' : photo.guestName}</span>
               <span className="photo-preset">{photo.presetName}</span>
             </div>
           </button>
@@ -144,18 +175,28 @@ export default function Gallery() {
             <img src={photoSrc(selected)} alt={selected.presetName} />
             <div className="lb-meta">
               <div>
-                <strong>{selected.guestName}</strong>
+                <strong>{hideName ? 'Tamu' : selected.guestName}</strong>
                 <span className="lb-preset">{selected.presetName}</span>
               </div>
               <span>{new Date(selected.createdAt).toLocaleString('id-ID')}</span>
             </div>
             <div className="lb-actions">
+              {enableLikes && (
+                <button className="chip" onClick={() => {
+                  const key = 'like_' + selected.id;
+                  const n = Number(localStorage.getItem(key) || 0) + 1;
+                  localStorage.setItem(key, String(n));
+                  alert('♥ ' + n);
+                }}>♥ Like</button>
+              )}
               <button className="chip" onClick={() => downloadPhoto(selected)}>
                 Unduh
               </button>
-              <button className="chip danger" onClick={() => handleDelete(selected.id)}>
-                Hapus
-              </button>
+              {( !myName || selected.guestName === myName) && (
+                <button className="chip danger" onClick={() => handleDelete(selected.id)}>
+                  Hapus
+                </button>
+              )}
               <button className="chip" onClick={() => setSelected(null)}>
                 Tutup
               </button>
