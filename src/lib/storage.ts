@@ -1,4 +1,4 @@
-/**
+/** 
  * Penyimpanan foto — cocok dengan skema Supabase lama:
  *   events (id uuid, ...)
  *   photos (id uuid, event_id, guest_name, storage_path, public_url, preset_id?, preset_name?)
