@@ -374,17 +374,29 @@ function applyPolaroidFrame(
             </div>
           )}
 
+          <div className="filter-strip">
+            {FILM_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`filter-chip ${p.id === presetId ? 'active' : ''}`}
+                onClick={() => setPresetId(p.id)}
+              >
+                <span className="filter-dot" style={{ filter: p.cssFilter }} />
+                <span className="filter-name">{p.name}</span>
+              </button>
+            ))}
+          </div>
+
           <div className="controls">
             <button
               className="side-btn"
-              onClick={() => setFacingMode((p) => (p === 'user' ? 'environment' : 'user'))}
-              aria-label="Ganti kamera"
+              onClick={() => setShowFilters((v) => !v)}
+              aria-label="Filter"
             >
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M17 2v4h4" />
-                <path d="M3 12a9 9 0 0 1 15-6.7L21 6" />
-                <path d="M7 22v-4H3" />
-                <path d="M21 12a9 9 0 0 1-15 6.7L3 18" />
+                <circle cx="12" cy="12" r="3" />
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
               </svg>
             </button>
             <button
@@ -400,7 +412,12 @@ function applyPolaroidFrame(
               onClick={() => setFacingMode((p) => (p === 'user' ? 'environment' : 'user'))}
               aria-label="Ganti kamera"
             >
-              🔄
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 2v4h4" />
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 6" />
+                <path d="M7 22v-4H3" />
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 18" />
+              </svg>
             </button>
           </div>
         </>
@@ -462,7 +479,7 @@ const camStyles = `
     position: relative;
     width: calc(100% - 32px);
     max-width: 380px;
-    aspect-ratio: 3/4;
+    aspect-ratio: 9/16;
     background: #000;
     border-radius: 20px;
     overflow: hidden;
@@ -565,7 +582,51 @@ const camStyles = `
     max-width: 380px;
     padding: 24px 32px 8px;
   }
- .side-btn {
+ .filter-strip {
+    display: flex;
+    gap: 10px;
+    width: 100%;
+    max-width: 380px;
+    padding: 12px 16px 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .filter-strip::-webkit-scrollbar { display: none; }
+  .filter-chip {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: none;
+    border: none;
+    color: #a8a29e;
+    cursor: pointer;
+    padding: 0;
+  }
+  .filter-chip.active { color: #f5f0eb; }
+  .filter-dot {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #e8d5c4, #8b7355);
+    border: 2px solid transparent;
+  }
+  .filter-chip.active .filter-dot {
+    border-color: #f0ebe3;
+    box-shadow: 0 0 0 2px rgba(240,235,227,0.35);
+  }
+  .filter-name {
+    font-size: 0.65rem;
+    font-weight: 500;
+    max-width: 56px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .side-btn {
     width: 48px;
     height: 48px;
     border-radius: 50%;
