@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { FILM_PRESETS, getPreset, type FilmPreset } from '../lib/presets';
 import { EVENT_CONFIG } from '../lib/config';
-import { savePhoto, isCloudEnabled } from '../lib/storage';
+import { savePhoto } from '../lib/storage';
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -144,7 +144,74 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
     }
   }
 
+
+  /** Frame polaroid tebal (border putih klasik) + teks estetis */
+  function applyPolaroidFrame(
+    srcCanvas: HTMLCanvasElement
+  ): { canvas: HTMLCanvasElement; dataUrl: string } {
+    const photoW = srcCanvas.width;
+    const photoH = srcCanvas.height;
+    // Border polaroid — cukup tebal, bawah proporsional (tidak terlalu tinggi)
+    const side = Math.round(photoW * 0.07);
+    const top = Math.round(photoW * 0.065);
+    const bottom = Math.round(photoH * 0.2);
+    const outW = photoW + side * 2;
+    const outH = photoH + top + bottom;
+
+    const out = document.createElement('canvas');
+    out.width = outW;
+    out.height = outH;
+    const ctx = out.getContext('2d')!;
+
+    // kertas polaroid — putih gading
+    ctx.fillStyle = '#f7f4ef';
+    ctx.fillRect(0, 0, outW, outH);
+
+    // sedikit inset gelap di tepi foto (tebal border terasa)
+    ctx.fillStyle = '#e8e4de';
+    ctx.fillRect(side - 2, top - 2, photoW + 4, photoH + 4);
+
+    ctx.drawImage(srcCanvas, side, top, photoW, photoH);
+
+    const polaroid = EVENT_CONFIG.polaroid || {
+      title: 'Aji & Ayu',
+      subtitle: '29 Oktober 2026',
+      hashtag: '',
+    };
+
+    const textAreaY = top + photoH;
+    const textCenterX = outW / 2;
+
+    // Judul besar — fokus visual
+    const titleSize = Math.max(34, Math.round(outW * 0.088));
+    ctx.fillStyle = '#1a1a1a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = `italic 500 ${titleSize}px "Cormorant Garamond", "Instrument Serif", Georgia, serif`;
+    ctx.fillText(polaroid.title, textCenterX, textAreaY + bottom * 0.36);
+
+    // hashtag + tanggal — kalem, spacing rapat
+    let y = textAreaY + bottom * 0.62;
+    if (polaroid.hashtag) {
+      const tagSize = Math.max(11, Math.round(outW * 0.024));
+      ctx.fillStyle = '#b0aaa4';
+      ctx.font = `400 ${tagSize}px Inter, system-ui, sans-serif`;
+      ctx.fillText(polaroid.hashtag, textCenterX, y);
+      y = textAreaY + bottom * 0.78;
+    } else {
+      y = textAreaY + bottom * 0.7;
+    }
+
+    const subSize = Math.max(11, Math.round(outW * 0.025));
+    ctx.fillStyle = '#b0aaa4';
+    ctx.font = `400 ${subSize}px Inter, system-ui, sans-serif`;
+    ctx.fillText(polaroid.subtitle, textCenterX, y);
+
+    return { canvas: out, dataUrl: out.toDataURL('image/jpeg', 0.92) };
+  }
+
   async function takePhoto() {
+
     if (!videoRef.current || !canvasRef.current || taking || count >= maxPhotos) return;
     if (!ready || videoRef.current.videoWidth === 0) return;
 
@@ -171,12 +238,18 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
       setTimeout(() => flash.classList.remove('active'), 120);
     }
 
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.9);
+    // Frame polaroid + teks
+    const framed = applyPolaroidFrame(canvas);
+    const dataUrl = framed.dataUrl;
     setLastPreview(dataUrl);
 
     try {
       const blob: Blob = await new Promise((resolve, reject) => {
-        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('blob failed'))), 'image/jpeg', 0.9);
+        framed.canvas.toBlob(
+          (b) => (b ? resolve(b) : reject(new Error('blob failed'))),
+          'image/jpeg',
+          0.92
+        );
       });
 
       await savePhoto({

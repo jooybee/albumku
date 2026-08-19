@@ -18,6 +18,34 @@ function formatRemaining(endsAt: string | null): string | null {
   return `${mins}m`;
 }
 
+/** Countdown reveal ala satualbum: "1703h 30m" */
+function formatRevealCountdown(revealAt: string | null): string | null {
+  if (!revealAt) return null;
+  const end = new Date(revealAt).getTime();
+  if (Number.isNaN(end)) return null;
+  const diff = end - Date.now();
+  if (diff <= 0) return null; // sudah terbuka
+  const totalHours = Math.floor(diff / (1000 * 60 * 60));
+  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (totalHours >= 24) {
+    const days = Math.floor(totalHours / 24);
+    const h = totalHours % 24;
+    return `${days}d ${h}h`;
+  }
+  return `${totalHours}h ${mins}m`;
+}
+
+function formatRevealLabel(revealAt: string): string {
+  const d = new Date(revealAt);
+  if (Number.isNaN(d.getTime())) return '';
+  const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  const day = d.getDate();
+  const mon = months[d.getMonth()];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${day} ${mon}, ${hh}.${mm}`;
+}
+
 type Step = 'join' | 'hub' | 'camera';
 
 export default function JoinScreen() {
@@ -26,7 +54,10 @@ export default function JoinScreen() {
   const [count, setCount] = useState(0);
   const [totalPhotos, setTotalPhotos] = useState(0);
   const [remaining, setRemaining] = useState<string | null>(null);
+  const [revealCountdown, setRevealCountdown] = useState<string | null>(null);
   const [coverIndex, setCoverIndex] = useState(0);
+  const revealAt = EVENT_CONFIG.revealAt;
+  const isRevealed = !revealAt || Date.now() >= new Date(revealAt).getTime();
   const [importing, setImporting] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
@@ -46,8 +77,11 @@ export default function JoinScreen() {
 
   useEffect(() => {
     setRemaining(formatRemaining(EVENT_CONFIG.endsAt));
-    if (!EVENT_CONFIG.endsAt) return;
-    const id = setInterval(() => setRemaining(formatRemaining(EVENT_CONFIG.endsAt)), 60_000);
+    setRevealCountdown(formatRevealCountdown(EVENT_CONFIG.revealAt));
+    const id = setInterval(() => {
+      setRemaining(formatRemaining(EVENT_CONFIG.endsAt));
+      setRevealCountdown(formatRevealCountdown(EVENT_CONFIG.revealAt));
+    }, 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -181,17 +215,47 @@ export default function JoinScreen() {
             </button>
           </div>
 
-          {/* Photo grid or empty */}
+          {/* Reveal countdown — mirip satualbum */}
+          {!isRevealed && revealCountdown && (
+            <div className="reveal-block">
+              <p className="reveal-label">Foto terungkap dalam</p>
+              <p className="reveal-count">{revealCountdown}</p>
+            </div>
+          )}
+
+          {/* Photo grid or empty — polaroid style saat locked */}
           {recent.length === 0 ? (
             <div className="hub-empty">
               <p className="empty-title">Belum ada momen</p>
               <p className="empty-sub">Abadikan momen pertama — foto dari kamera atau unggah dari galeri</p>
             </div>
           ) : (
-            <div className="hub-grid">
-              {recent.map((p) => (
-                <a key={p.id} href="/gallery" className="hub-thumb">
-                  <img src={photoSrc(p)} alt="" />
+            <div className="hub-polaroid-row">
+              {recent.slice(0, 3).map((p) => (
+                <a key={p.id} href="/gallery" className={`hub-polaroid ${!isRevealed ? 'locked' : ''}`}>
+                  <div className="hub-polaroid-inner">
+                    <img
+                      src={photoSrc(p)}
+                      alt=""
+                      className={!isRevealed ? 'blurred' : ''}
+                    />
+                    {!isRevealed && revealAt && (
+                      <div className="hub-lock">
+                        <svg className="hub-lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <circle cx="12" cy="12" r="9" />
+                          <path d="M12 7v5l3 2" />
+                        </svg>
+                        <span className="hub-lock-time">{formatRevealLabel(revealAt)}</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="hub-polaroid-cap">
+                    <p className="hub-pol-title">{EVENT_CONFIG.polaroid?.title || eventName}</p>
+                    {EVENT_CONFIG.polaroid?.hashtag && (
+                      <p className="hub-pol-tag">{EVENT_CONFIG.polaroid.hashtag}</p>
+                    )}
+                    <p className="hub-pol-date">{EVENT_CONFIG.polaroid?.subtitle || ''}</p>
+                  </div>
                 </a>
               ))}
             </div>
@@ -393,7 +457,45 @@ async function applyPresetToImage(dataUrl: string, preset: ReturnType<typeof get
         ctx.fillStyle = gr;
         ctx.fillRect(0, 0, w, h);
       }
-      resolve(canvas.toDataURL('image/jpeg', 0.88));
+
+      // Frame polaroid — proporsional
+      const side = Math.round(w * 0.07);
+      const top = Math.round(w * 0.065);
+      const bottom = Math.round(h * 0.2);
+      const outW = w + side * 2;
+      const outH = h + top + bottom;
+      const out = document.createElement('canvas');
+      out.width = outW;
+      out.height = outH;
+      const octx = out.getContext('2d')!;
+      octx.fillStyle = '#f7f4ef';
+      octx.fillRect(0, 0, outW, outH);
+      octx.fillStyle = '#e8e4de';
+      octx.fillRect(side - 2, top - 2, w + 4, h + 4);
+      octx.drawImage(canvas, side, top, w, h);
+      const polaroid = EVENT_CONFIG.polaroid || { title: 'Aji & Ayu', subtitle: '29 Oktober 2026', hashtag: '' };
+      const titleSize = Math.max(34, Math.round(outW * 0.088));
+      octx.fillStyle = '#1a1a1a';
+      octx.textAlign = 'center';
+      octx.textBaseline = 'middle';
+      octx.font = `italic 500 ${titleSize}px "Cormorant Garamond", "Instrument Serif", Georgia, serif`;
+      octx.fillText(polaroid.title, outW / 2, top + h + bottom * 0.36);
+      let ty = top + h + bottom * 0.62;
+      if (polaroid.hashtag) {
+        const tagSize = Math.max(11, Math.round(outW * 0.024));
+        octx.fillStyle = '#b0aaa4';
+        octx.font = `400 ${tagSize}px Inter, system-ui, sans-serif`;
+        octx.fillText(polaroid.hashtag, outW / 2, ty);
+        ty = top + h + bottom * 0.78;
+      } else {
+        ty = top + h + bottom * 0.7;
+      }
+      const subSize = Math.max(11, Math.round(outW * 0.025));
+      octx.fillStyle = '#b0aaa4';
+      octx.font = `400 ${subSize}px Inter, system-ui, sans-serif`;
+      octx.fillText(polaroid.subtitle, outW / 2, ty);
+
+      resolve(out.toDataURL('image/jpeg', 0.9));
     };
     img.onerror = reject;
     img.src = dataUrl;
@@ -641,5 +743,103 @@ const hubCss = `
     margin-top: 14px;
     background: none; border: none;
     color: #8a8580; font-size: 0.9rem; cursor: pointer;
+  }
+
+  .reveal-block {
+    text-align: center;
+    margin: 18px 0 14px;
+  }
+  .reveal-label {
+    font-size: 0.8rem;
+    color: #8a8580;
+    margin-bottom: 4px;
+  }
+  .reveal-count {
+    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(1.9rem, 8vw, 2.5rem);
+    color: #f5f0eb;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  .hub-polaroid-row {
+    display: flex;
+    gap: 10px;
+    overflow-x: auto;
+    padding: 4px 2px 12px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .hub-polaroid-row::-webkit-scrollbar { display: none; }
+  .hub-polaroid {
+    flex: 0 0 168px;
+    background: #f7f4ef;
+    padding: 8px 8px 10px;
+    border-radius: 2px;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+    text-decoration: none;
+    color: inherit;
+  }
+  .hub-polaroid-inner {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: #1a1a1a;
+  }
+  .hub-polaroid-inner img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .hub-polaroid-inner img.blurred {
+    filter: blur(14px) brightness(0.62);
+    transform: scale(1.1);
+  }
+  .hub-lock {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: rgba(255,255,255,0.92);
+    background: rgba(0,0,0,0.12);
+    pointer-events: none;
+  }
+  .hub-lock-ico {
+    width: 18px;
+    height: 18px;
+    opacity: 0.9;
+  }
+  .hub-lock-time {
+    font-size: 0.65rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+  }
+  .hub-polaroid-cap {
+    text-align: center;
+    margin-top: 8px;
+    padding: 0 2px;
+  }
+  .hub-pol-title {
+    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.25rem;
+    color: #1a1a1a;
+    line-height: 1.15;
+  }
+  .hub-pol-tag {
+    font-size: 0.6rem;
+    color: #a8a29e;
+    margin-top: 2px;
+  }
+  .hub-pol-date {
+    font-size: 0.6rem;
+    color: #a8a29e;
+    margin-top: 1px;
   }
 `;

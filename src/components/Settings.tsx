@@ -157,6 +157,7 @@ export default function Settings() {
             value={s.maxPhotosPerGuest}
             onChange={(e) => update('maxPhotosPerGuest', Math.max(1, Number(e.target.value) || 1))}
           />
+          <span className="set-help">Batas foto per nama tamu. Default dari config.ts.</span>
         </label>
 
         <label className="set-row col">

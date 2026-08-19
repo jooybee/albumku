@@ -8,6 +8,7 @@
 
 import { EVENT_CONFIG } from './config';
 import { supabase, isCloudEnabled, type CloudPhoto } from './supabase';
+import { getDeviceId, getDevicePhotoCount, incrementDevicePhotoCount } from './device';
 
 export interface StoredPhoto {
   id: string;
@@ -171,20 +172,31 @@ export async function savePhoto(opts: {
   presetId: string;
   presetName: string;
 }): Promise<StoredPhoto> {
+  let photo: StoredPhoto;
   if (useCloud()) {
-    return cloudSave(opts.guestName, opts.blob, opts.presetId, opts.presetName);
+    photo = await cloudSave(opts.guestName, opts.blob, opts.presetId, opts.presetName);
+  } else {
+    photo = {
+      id: uid(),
+      guestName: opts.guestName,
+      dataUrl: opts.dataUrl,
+      presetId: opts.presetId,
+      presetName: opts.presetName,
+      createdAt: Date.now(),
+    };
+    await localSave(photo);
   }
-  const photo: StoredPhoto = {
-    id: uid(),
-    guestName: opts.guestName,
-    dataUrl: opts.dataUrl,
-    presetId: opts.presetId,
-    presetName: opts.presetName,
-    createdAt: Date.now(),
-  };
-  await localSave(photo);
+  // Batas foto berdasarkan perangkat (bukan nama)
+  incrementDevicePhotoCount();
   return photo;
 }
+
+/** Jumlah foto yang sudah diambil dari perangkat ini */
+export function getDeviceCount(): number {
+  return getDevicePhotoCount();
+}
+
+export { getDeviceId };
 
 export async function getAllPhotos(): Promise<StoredPhoto[]> {
   if (useCloud()) return cloudGetAll();
@@ -198,6 +210,16 @@ export async function getPhotoCount(guestName?: string): Promise<number> {
 
 export async function deletePhoto(id: string): Promise<void> {
   if (useCloud() && supabase) {
+    // Ambil path storage dulu agar file di bucket juga terhapus
+    const { data: row } = await supabase
+      .from('photos')
+      .select('storage_path')
+      .eq('id', id)
+      .maybeSingle();
+
+    if (row?.storage_path) {
+      await supabase.storage.from('photos').remove([row.storage_path]);
+    }
     await supabase.from('photos').delete().eq('id', id);
     return;
   }

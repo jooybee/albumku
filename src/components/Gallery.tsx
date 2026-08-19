@@ -7,6 +7,31 @@ import {
   type StoredPhoto,
 } from '../lib/storage';
 import { EVENT_CONFIG } from '../lib/config';
+import { loadSettings } from '../lib/settings';
+
+
+function formatRevealCountdown(revealAt: string | null): string | null {
+  if (!revealAt) return null;
+  const end = new Date(revealAt).getTime();
+  if (Number.isNaN(end)) return null;
+  const diff = end - Date.now();
+  if (diff <= 0) return null;
+  const totalHours = Math.floor(diff / (1000 * 60 * 60));
+  const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (totalHours >= 48) {
+    const days = Math.floor(totalHours / 24);
+    const h = totalHours % 24;
+    return `${days}d ${h}h`;
+  }
+  return `${totalHours}h ${mins}m`;
+}
+
+function formatRevealLabel(revealAt: string): string {
+  const d = new Date(revealAt);
+  if (Number.isNaN(d.getTime())) return '';
+  const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+  return `${d.getDate()} ${months[d.getMonth()]}, ${String(d.getHours()).padStart(2,'0')}.${String(d.getMinutes()).padStart(2,'0')}`;
+}
 
 export default function Gallery() {
   const [photos, setPhotos] = useState<StoredPhoto[]>([]);
@@ -18,7 +43,12 @@ export default function Gallery() {
   const [likes, setLikes] = useState<Record<string, number>>({});
 
   const sharedAlbum = isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
-  const enableLikes = true;
+  const settings = typeof window !== 'undefined' ? loadSettings() : null;
+  const enableLikes = settings?.enableLikes !== false;
+  const revealAt =
+    settings?.revealAt ?? EVENT_CONFIG.revealAt ?? null;
+  const isRevealed =
+    !revealAt || Date.now() >= new Date(revealAt).getTime();
 
   useEffect(() => {
     try {
@@ -83,6 +113,51 @@ export default function Gallery() {
     a.click();
   }
 
+  async function sharePhoto(photo: StoredPhoto) {
+    const src = photoSrc(photo);
+    if (!src) return;
+    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
+    const title = EVENT_CONFIG.polaroid?.title || EVENT_CONFIG.name;
+    const text = `${title} — ${EVENT_CONFIG.polaroid?.subtitle || ''}`;
+
+    try {
+      // Coba bagikan file (bagus untuk Instagram Stories via share sheet HP)
+      if (navigator.share) {
+        let file: File | null = null;
+        try {
+          const res = await fetch(src);
+          const blob = await res.blob();
+          file = new File([blob], `momen-${photo.createdAt}.jpg`, {
+            type: blob.type || 'image/jpeg',
+          });
+        } catch {
+          /* fetch gagal (CORS) — tetap share URL */
+        }
+
+        if (file && navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title, text });
+          return;
+        }
+        await navigator.share({ title, text, url: pageUrl });
+        return;
+      }
+    } catch (err: unknown) {
+      if ((err as Error)?.name === 'AbortError') return;
+    }
+
+    // Fallback: unduh + salin link (Instagram tidak punya share URL resmi)
+    try {
+      await navigator.clipboard?.writeText(pageUrl);
+    } catch {
+      /* ignore */
+    }
+    downloadPhoto(photo);
+    alert(
+      'Foto diunduh. Untuk Instagram Stories: buka Instagram → buat Story → pilih foto dari galeri. Link album sudah disalin.'
+    );
+  }
+
+  /** Like bisa di-spam (setiap tap +1) */
   function toggleLike(id: string) {
     setLikes((prev) => {
       const next = { ...prev, [id]: (prev[id] || 0) + 1 };
@@ -172,36 +247,65 @@ export default function Gallery() {
         </button>
       </div>
 
-      <div className="photo-grid">
+      {!isRevealed && revealAt && (
+        <div className="reveal-hero">
+          <p className="reveal-label">Foto terungkap dalam</p>
+          <p className="reveal-count">{formatRevealCountdown(revealAt) || '…'}</p>
+        </div>
+      )}
+
+      <div className={`photo-grid ${!isRevealed ? 'polaroid-mode' : ''}`}>
         {visible.map((photo) => (
           <button
             key={photo.id}
             type="button"
-            className="photo-card"
-            onClick={() => setSelected(photo)}
+            className={`photo-card ${!isRevealed ? 'polaroid locked' : ''}`}
+            onClick={() => isRevealed && setSelected(photo)}
           >
-            <img
-              src={photoSrc(photo)}
-              alt=""
-              loading="lazy"
-              onError={(e) => {
-                const el = e.target as HTMLImageElement;
-                el.style.background = '#222';
-                el.alt = 'Gagal muat';
-              }}
-            />
-            <div className="photo-meta">
-              <span className="photo-guest">{photo.guestName}</span>
-              <span className="photo-preset">{photo.presetName}</span>
-              {enableLikes && (likes[photo.id] || 0) > 0 && (
-                <span className="photo-likes">♥ {likes[photo.id]}</span>
+            <div className="polaroid-photo">
+              <img
+                src={photoSrc(photo)}
+                alt=""
+                loading="lazy"
+                className={!isRevealed ? 'blurred' : ''}
+                onError={(e) => {
+                  const el = e.target as HTMLImageElement;
+                  el.style.background = '#222';
+                  el.alt = 'Gagal muat';
+                }}
+              />
+              {!isRevealed && revealAt && (
+                <div className="lock-overlay">
+                  <svg className="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  <span className="lock-date">{formatRevealLabel(revealAt)}</span>
+                </div>
               )}
             </div>
+            {!isRevealed ? (
+              <div className="polaroid-cap">
+                <span className="pol-title">{EVENT_CONFIG.polaroid?.title || EVENT_CONFIG.name}</span>
+                {EVENT_CONFIG.polaroid?.hashtag && (
+                  <span className="pol-tag">{EVENT_CONFIG.polaroid.hashtag}</span>
+                )}
+                <span className="pol-date">{EVENT_CONFIG.polaroid?.subtitle || ''}</span>
+              </div>
+            ) : (
+              <div className="photo-meta">
+                <span className="photo-guest">{photo.guestName}</span>
+                <span className="photo-preset">{photo.presetName}</span>
+                {enableLikes && (likes[photo.id] || 0) > 0 && (
+                  <span className="photo-likes">♥ {likes[photo.id]}</span>
+                )}
+              </div>
+            )}
           </button>
         ))}
       </div>
 
-      {selected && (
+      {selected && isRevealed && (
         <div className="lightbox" onClick={() => setSelected(null)} role="presentation">
           <div className="lb-content" onClick={(e) => e.stopPropagation()} role="dialog">
             <img src={photoSrc(selected)} alt="" />
@@ -214,10 +318,13 @@ export default function Gallery() {
             </div>
             <div className="lb-actions">
               {enableLikes && (
-                <button type="button" className="chip" onClick={() => toggleLike(selected.id)}>
+                <button type="button" className="chip like-btn" onClick={() => toggleLike(selected.id)}>
                   ♥ Like{(likes[selected.id] || 0) > 0 ? ` (${likes[selected.id]})` : ''}
                 </button>
               )}
+              <button type="button" className="chip" onClick={() => sharePhoto(selected)}>
+                ↗ Bagikan
+              </button>
               <button type="button" className="chip" onClick={() => downloadPhoto(selected)}>
                 Unduh
               </button>
@@ -301,4 +408,111 @@ const css = `
   .lb-meta strong { display: block; color: #f5f0eb; font-size: 0.95rem; }
   .lb-preset { display: block; font-size: 0.75rem; margin-top: 2px; }
   .lb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .like-btn { color: #f9a8d4; border-color: rgba(249,168,212,0.35); }
+  .like-btn:active { transform: scale(0.95); }
+
+  .reveal-hero {
+    text-align: center;
+    margin: 4px 0 18px;
+  }
+  .reveal-label {
+    font-size: 0.8rem;
+    color: #8a8580;
+    margin-bottom: 4px;
+  }
+  .reveal-count {
+    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
+    font-style: italic;
+    font-weight: 400;
+    font-size: clamp(1.9rem, 8vw, 2.6rem);
+    color: #f5f0eb;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+
+  .photo-grid.polaroid-mode {
+    grid-template-columns: 1fr;
+    max-width: 240px;
+    margin: 0 auto;
+    gap: 16px;
+  }
+  @media (min-width: 420px) {
+    .photo-grid.polaroid-mode {
+      grid-template-columns: repeat(2, 1fr);
+      max-width: 100%;
+      gap: 14px;
+    }
+  }
+
+  .photo-card.polaroid {
+    aspect-ratio: auto;
+    background: #f7f4ef;
+    border: none;
+    border-radius: 2px;
+    padding: 8px 8px 10px;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+    cursor: default;
+    overflow: visible;
+  }
+  .polaroid-photo {
+    position: relative;
+    aspect-ratio: 1;
+    overflow: hidden;
+    background: #1a1a1a;
+  }
+  .polaroid-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .polaroid-photo img.blurred {
+    filter: blur(14px) brightness(0.62);
+    transform: scale(1.1);
+  }
+  .lock-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 4px;
+    color: rgba(255,255,255,0.92);
+    background: rgba(0,0,0,0.12);
+    pointer-events: none;
+  }
+  .lock-ico {
+    width: 18px;
+    height: 18px;
+    opacity: 0.9;
+  }
+  .lock-date {
+    font-size: 0.68rem;
+    font-weight: 500;
+    letter-spacing: 0.03em;
+    opacity: 0.92;
+  }
+  .polaroid-cap {
+    text-align: center;
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 0 2px;
+  }
+  .pol-title {
+    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
+    font-style: italic;
+    font-weight: 500;
+    font-size: 1.35rem;
+    color: #1a1a1a;
+    line-height: 1.15;
+  }
+  .pol-tag { font-size: 0.62rem; color: #a8a29e; letter-spacing: 0.02em; }
+  .pol-date { font-size: 0.62rem; color: #a8a29e; }
+
+  .lb-content img {
+    background: #f7f4ef;
+    padding: 14px 14px 56px;
+    border-radius: 2px;
+    border: none !important;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+  }
 `;
