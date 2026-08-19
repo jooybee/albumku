@@ -479,7 +479,7 @@ const camStyles = `
     position: relative;
     width: calc(100% - 32px);
     max-width: 380px;
-    aspect-ratio: 9/16;
+    aspect-ratio: 2/3;
     background: #000;
     border-radius: 20px;
     overflow: hidden;

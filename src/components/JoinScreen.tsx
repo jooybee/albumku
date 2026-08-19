@@ -344,11 +344,31 @@ export default function JoinScreen() {
       <div className="lang-badge">ID</div>
 
       <div className="join-body">
-        <div className="host-pill">👤 Diundang oleh {hostName}</div>
+        <div className="host-pill">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+            <circle cx="12" cy="7" r="4" />
+          </svg>
+          Diundang oleh {hostName}
+        </div>
         <h1 className="join-title">{eventName}</h1>
         <div className="join-meta">
-          {remaining && <span>🕐 {remaining} tersisa</span>}
-          <span>📷 {maxPhotos} foto tersedia</span>
+          {remaining && (
+            <span className="meta-pill">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              {remaining} tersisa
+            </span>
+          )}
+          <span className="meta-pill">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+              <circle cx="12" cy="13" r="4" />
+            </svg>
+            {maxPhotos} foto tersedia
+          </span>
         </div>
 
         <form onSubmit={handleJoin} className="join-form">
@@ -546,8 +566,27 @@ const joinCss = `
     color: #f5f0eb; margin-bottom: 14px;
   }
   .join-meta {
-    display: flex; flex-wrap: wrap; justify-content: center; gap: 14px;
-    font-size: 0.85rem; color: #8a8580; margin-bottom: 28px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin: 12px 0 28px;
+  }
+  .meta-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.1);
+    color: #c4bfb8;
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+  .meta-pill svg {
+    opacity: 0.85;
+    flex-shrink: 0;
   }
   .join-form { display: flex; flex-direction: column; gap: 12px; }
   .input-wrap { position: relative; }
@@ -841,5 +880,17 @@ const hubCss = `
     font-size: 0.6rem;
     color: #a8a29e;
     margin-top: 1px;
+  }
+  .host-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.12);
+    font-size: 0.8rem;
+    color: #e7e5e4;
+    margin-bottom: 10px;
   }
 `;
