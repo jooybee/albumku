@@ -91,3 +91,24 @@ App tetap jalan (mode lokal IndexedDB) — foto **tidak** saling terlihat antar 
 | `events` | Ya — 1 baris event, `id`-nya di `config.eventId` |
 | `photos` | Ya — `event_id`, `guest_name`, `storage_path`, `public_url`, `preset_id`, `preset_name` |
 | storage bucket `photos` | Ya — path `{eventId}/{file}.jpg` |
+
+
+## Ganti foto header (cover)
+
+1. Taruh foto di `public/covers/` (mis. `cover1.jpg`, `cover2.jpg`)
+2. Edit `src/lib/config.ts`:
+
+```ts
+coverImages: [
+  '/covers/cover1.jpg',
+  '/covers/cover2.jpg',  // opsional, ganti bergiliran
+],
+coverFadeStrength: 0.92,  // 0 = tanpa fade, 1 = sangat gelap di bawah
+```
+
+## Fitur hub tamu
+
+Setelah isi nama:
+- **Tombol kamera putih** → buka kamera + ganti filter
+- **Import foto** → pilih dari galeri HP, otomatis kena filter film
+- **QR Code** → tampilkan QR link album untuk dibagikan
