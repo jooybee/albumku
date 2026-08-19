@@ -1,360 +1,229 @@
-import { useEffect, useState, useCallback } from 'react';
-import {
-  getAllPhotos,
-  clearAllPhotos,
-  deletePhoto,
-  photoSrc,
-  isCloudEnabled,
-  type StoredPhoto,
-} from '../lib/storage';
-import { EVENT_CONFIG } from '../lib/config';
-import { loadSettings } from '../lib/settings';
+/**
+ * Penyimpanan foto — cocok dengan skema Supabase lama:
+ *   events (id uuid, ...)
+ *   photos (id uuid, event_id, guest_name, storage_path, public_url, preset_id?, preset_name?)
+ *
+ * Fallback: IndexedDB jika Supabase / eventId belum di-setup.
+ */
 
-const sharedAlbum = isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
-  const [settings, setSettings] = useState(() =>
-    typeof window !== 'undefined' ? loadSettings() : null
-  );
-  const hideName = settings?.hideUploaderName ?? false;
-  const publicAlbum = settings?.publicAlbum ?? true;
-  const enableLikes = settings?.enableLikes ?? false;
+import { EVENT_CONFIG } from './config';
+import { supabase, isCloudEnabled, type CloudPhoto } from './supabase';
 
-export default function Gallery() {
-  const [photos, setPhotos] = useState<StoredPhoto[]>([]);
-  const [myName, setMyName] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [selected, setSelected] = useState<StoredPhoto | null>(null);
-  const [filterGuest, setFilterGuest] = useState<string | 'all'>('all');
+export interface StoredPhoto {
+  id: string;
+  guestName: string;
+  dataUrl?: string;
+  publicUrl?: string;
+  presetId: string;
+  presetName: string;
+  createdAt: number;
+}
 
-  useEffect(() => {
-    setMyName(localStorage.getItem('guest_name') || '');
-  }, []);
+function uid() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setPhotos(await getAllPhotos());
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+const useCloud = () =>
+  isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
 
-  useEffect(() => {
-    load();
-    // auto-refresh tiap 8 detik kalau cloud (foto tamu lain)
-    if (!sharedAlbum) return;
-    const t = setInterval(load, 8000);
-    return () => clearInterval(t);
-  }, [load]);
+// —— IndexedDB fallback ——
+const DB_NAME = 'albumku';
+const STORE = 'photos';
+const DB_VERSION = 1;
 
-  const guests = Array.from(new Set(photos.map((p) => p.guestName)));
-  let basePhotos = photos;
-  if (!publicAlbum && myName) {
-    basePhotos = photos.filter((p) => p.guestName === myName);
+function openDB(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => resolve(req.result);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORE)) {
+        const s = db.createObjectStore(STORE, { keyPath: 'id' });
+        s.createIndex('guestName', 'guestName', { unique: false });
+      }
+    };
+  });
+}
+
+async function localSave(photo: StoredPhoto): Promise<void> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).put(photo);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+async function localGetAll(): Promise<StoredPhoto[]> {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readonly');
+    const req = tx.objectStore(STORE).getAll();
+    req.onsuccess = () => {
+      resolve(
+        (req.result as StoredPhoto[]).sort((a, b) => a.createdAt - b.createdAt)
+      );
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function localCount(guestName?: string): Promise<number> {
+  const all = await localGetAll();
+  if (guestName) return all.filter((p) => p.guestName === guestName).length;
+  return all.length;
+}
+
+// —— Cloud (skema existing) ——
+async function cloudSave(
+  guestName: string,
+  blob: Blob,
+  presetId: string,
+  presetName: string
+): Promise<StoredPhoto> {
+  if (!supabase) throw new Error('Supabase not configured');
+  const eventId = EVENT_CONFIG.eventId;
+  if (!eventId) throw new Error('eventId belum diisi di config.ts');
+
+  const fileId = uid();
+  const path = `${eventId}/${fileId}.jpg`;
+
+  const { error: upErr } = await supabase.storage
+    .from('photos')
+    .upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+
+  if (upErr) throw upErr;
+
+  const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
+
+  const row: Record<string, unknown> = {
+    event_id: eventId,
+    guest_name: guestName,
+    storage_path: path,
+    public_url: urlData.publicUrl,
+    preset_id: presetId,
+    preset_name: presetName,
+  };
+
+  const { data, error: insErr } = await supabase
+    .from('photos')
+    .insert(row)
+    .select('id, created_at')
+    .single();
+
+  if (insErr) throw insErr;
+
+  return {
+    id: data.id,
+    guestName,
+    publicUrl: urlData.publicUrl,
+    presetId,
+    presetName,
+    createdAt: new Date(data.created_at).getTime(),
+  };
+}
+
+async function cloudGetAll(): Promise<StoredPhoto[]> {
+  if (!supabase || !EVENT_CONFIG.eventId) return [];
+
+  const { data, error } = await supabase
+    .from('photos')
+    .select('*')
+    .eq('event_id', EVENT_CONFIG.eventId)
+    .order('created_at', { ascending: true });
+
+  if (error) throw error;
+
+  return ((data as CloudPhoto[]) || []).map((p) => ({
+    id: p.id,
+    guestName: p.guest_name,
+    publicUrl: p.public_url,
+    presetId: p.preset_id || 'funsaver',
+    presetName: p.preset_name || 'Film',
+    createdAt: new Date(p.created_at).getTime(),
+  }));
+}
+
+async function cloudCount(guestName?: string): Promise<number> {
+  if (!supabase || !EVENT_CONFIG.eventId) return 0;
+
+  let q = supabase
+    .from('photos')
+    .select('*', { count: 'exact', head: true })
+    .eq('event_id', EVENT_CONFIG.eventId);
+
+  if (guestName) q = q.eq('guest_name', guestName);
+
+  const { count, error } = await q;
+  if (error) throw error;
+  return count || 0;
+}
+
+// —— Public API ——
+export { isCloudEnabled, useCloud };
+
+export async function savePhoto(opts: {
+  guestName: string;
+  blob: Blob;
+  dataUrl: string;
+  presetId: string;
+  presetName: string;
+}): Promise<StoredPhoto> {
+  if (useCloud()) {
+    return cloudSave(opts.guestName, opts.blob, opts.presetId, opts.presetName);
   }
-  const visible =
-    filterGuest === 'all' ? basePhotos : basePhotos.filter((p) => p.guestName === filterGuest);
+  const photo: StoredPhoto = {
+    id: uid(),
+    guestName: opts.guestName,
+    dataUrl: opts.dataUrl,
+    presetId: opts.presetId,
+    presetName: opts.presetName,
+    createdAt: Date.now(),
+  };
+  await localSave(photo);
+  return photo;
+}
 
-  async function handleClear() {
-    // Hanya hapus foto milik nama ini (bukan seluruh album)
-    if (!myName) {
-      alert('Masuk dengan namamu dulu untuk mengelola foto.');
-      return;
-    }
-    if (!confirm(`Hapus fotoku foto atas nama "${myName}"? Foto tamu lain tetap aman.`)) return;
-    const mine = photos.filter((p) => p.guestName === myName);
-    for (const p of mine) {
-      await deletePhoto(p.id);
-    }
-    setPhotos((prev) => prev.filter((p) => p.guestName !== myName));
+export async function getAllPhotos(): Promise<StoredPhoto[]> {
+  if (useCloud()) return cloudGetAll();
+  return localGetAll();
+}
+
+export async function getPhotoCount(guestName?: string): Promise<number> {
+  if (useCloud()) return cloudCount(guestName);
+  return localCount(guestName);
+}
+
+export async function deletePhoto(id: string): Promise<void> {
+  if (useCloud() && supabase) {
+    await supabase.from('photos').delete().eq('id', id);
+    return;
   }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 
-  async function handleDelete(id: string) {
-    const photo = photos.find((p) => p.id === id);
-    if (!photo) return;
-    if (myName && photo.guestName !== myName) {
-      alert('Kamu hanya bisa menghapus foto atas namamu sendiri.');
-      return;
-    }
-    if (!confirm('Hapus foto ini?')) return;
-    await deletePhoto(id);
-    setPhotos((prev) => prev.filter((p) => p.id !== id));
-    if (selected?.id === id) setSelected(null);
+export async function clearAllPhotos(): Promise<void> {
+  if (useCloud() && supabase && EVENT_CONFIG.eventId) {
+    await supabase.from('photos').delete().eq('event_id', EVENT_CONFIG.eventId);
+    return;
   }
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(STORE, 'readwrite');
+    tx.objectStore(STORE).clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
 
-  function downloadPhoto(photo: StoredPhoto) {
-    const src = photoSrc(photo);
-    const a = document.createElement('a');
-    a.href = src;
-    a.download = `film-${photo.presetId}-${photo.createdAt}.jpg`;
-    a.target = '_blank';
-    a.click();
-  }
-
-  if (loading && photos.length === 0) {
-    return (
-      <div className="g-empty">
-        <p>Memuat album…</p>
-      </div>
-    );
-  }
-
-  if (photos.length === 0) {
-    return (
-      <div className="g-empty">
-        <p className="empty-icon">🎞️</p>
-        <p className="empty-title">Belum ada momen</p>
-        <p className="empty-sub">
-          {sharedAlbum
-            ? 'Momen dari semua tamu akan muncul di sini'
-            : 'Mode lokal — hanya foto di perangkat ini'}
-        </p>
-        <a href="/" className="btn-primary" style={{ marginTop: 24, maxWidth: 240 }}>
-          Mulai potret
-        </a>
-      </div>
-    );
-  }
-
-  return (
-    <div className="gallery">
-      {/* Mode badge */}
-      <div className="mode-row">
-        <span className={`mode-badge ${sharedAlbum ? 'cloud' : 'local'}`}>
-          {sharedAlbum ? '☁ Album bersama' : '📱 Hanya di perangkat ini'}
-        </span>
-        <span className="photo-total">{photos.length} foto</span>
-      </div>
-
-      {/* Filter by guest */}
-      {guests.length > 1 && (
-        <div className="guest-filters">
-          <button
-            className={`chip ${filterGuest === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterGuest('all')}
-          >
-            Semua
-          </button>
-          {guests.map((g) => (
-            <button
-              key={g}
-              className={`chip ${filterGuest === g ? 'active' : ''}`}
-              onClick={() => setFilterGuest(g)}
-            >
-              {g}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="g-actions">
-        <button className="chip" onClick={load}>
-          ↻ Refresh
-        </button>
-        <button className="chip danger" onClick={handleClear}>
-          Hapus fotoku
-        </button>
-      </div>
-
-      <div className="photo-grid">
-        {visible.map((photo) => (
-          <button key={photo.id} className="photo-card" onClick={() => setSelected(photo)}>
-            <img src={photoSrc(photo)} alt={photo.presetName} loading="lazy" />
-            <div className="photo-meta">
-              <span className="photo-guest">{hideName ? 'Tamu' : photo.guestName}</span>
-              <span className="photo-preset">{photo.presetName}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-
-      {selected && (
-        <div className="lightbox" onClick={() => setSelected(null)}>
-          <div className="lb-content" onClick={(e) => e.stopPropagation()}>
-            <img src={photoSrc(selected)} alt={selected.presetName} />
-            <div className="lb-meta">
-              <div>
-                <strong>{hideName ? 'Tamu' : selected.guestName}</strong>
-                <span className="lb-preset">{selected.presetName}</span>
-              </div>
-              <span>{new Date(selected.createdAt).toLocaleString('id-ID')}</span>
-            </div>
-            <div className="lb-actions">
-              {enableLikes && (
-                <button className="chip" onClick={() => {
-                  const key = 'like_' + selected.id;
-                  const n = Number(localStorage.getItem(key) || 0) + 1;
-                  localStorage.setItem(key, String(n));
-                  alert('♥ ' + n);
-                }}>♥ Like</button>
-              )}
-              <button className="chip" onClick={() => downloadPhoto(selected)}>
-                Unduh
-              </button>
-              {( !myName || selected.guestName === myName) && (
-                <button className="chip danger" onClick={() => handleDelete(selected.id)}>
-                  Hapus
-                </button>
-              )}
-              <button className="chip" onClick={() => setSelected(null)}>
-                Tutup
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <style>{`
-        .g-empty {
-          text-align: center;
-          padding: 64px 20px;
-          color: #8a8580;
-        }
-        .empty-icon { font-size: 2.8rem; margin-bottom: 12px; }
-        .empty-title {
-          font-family: var(--font-serif);
-          font-style: italic;
-          font-size: 1.4rem;
-          color: #f5f0eb;
-          margin-bottom: 6px;
-        }
-        .empty-sub { font-size: 0.85rem; }
-
-        .mode-row {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 16px;
-        }
-        .mode-badge {
-          font-size: 0.75rem;
-          font-weight: 600;
-          padding: 5px 12px;
-          border-radius: 999px;
-        }
-        .mode-badge.cloud {
-          background: rgba(45, 106, 79, 0.35);
-          color: #a7f3d0;
-        }
-        .mode-badge.local {
-          background: rgba(255,255,255,0.08);
-          color: #a8a29e;
-        }
-        .photo-total {
-          font-size: 0.8rem;
-          color: #8a8580;
-        }
-
-        .guest-filters {
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          margin-bottom: 14px;
-        }
-        .g-actions {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 18px;
-        }
-        .chip {
-          padding: 7px 14px;
-          border-radius: 999px;
-          border: 1.5px solid rgba(255,255,255,0.12);
-          background: #141414;
-          color: #c4bfb8;
-          font-weight: 500;
-          font-size: 0.8rem;
-          cursor: pointer;
-        }
-        .chip.active {
-          background: #f0ebe3;
-          color: #0a0a0a;
-          border-color: #f0ebe3;
-        }
-        .chip.danger {
-          color: #fca5a5;
-          border-color: rgba(252,165,165,0.25);
-        }
-
-        .photo-grid {
-          display: grid;
-          grid-template-columns: repeat(2, 1fr);
-          gap: 10px;
-        }
-        @media (min-width: 420px) {
-          .photo-grid { grid-template-columns: repeat(3, 1fr); }
-        }
-        .photo-card {
-          position: relative;
-          aspect-ratio: 3/4;
-          border: none;
-          padding: 0;
-          border-radius: 6px;
-          overflow: hidden;
-          cursor: pointer;
-          background: #111;
-          border: 2px solid #1a1a1a;
-          /* film-ish frame */
-          box-shadow: inset 0 0 0 1px rgba(255,255,255,0.04);
-        }
-        .photo-card img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        .photo-meta {
-          position: absolute;
-          bottom: 0; left: 0; right: 0;
-          background: linear-gradient(transparent, rgba(0,0,0,0.8));
-          padding: 18px 8px 7px;
-          text-align: left;
-        }
-        .photo-guest {
-          display: block;
-          color: #fff;
-          font-size: 0.7rem;
-          font-weight: 600;
-        }
-        .photo-preset {
-          display: block;
-          color: #a8a29e;
-          font-size: 0.6rem;
-        }
-
-        .lightbox {
-          position: fixed; inset: 0;
-          background: rgba(0,0,0,0.94);
-          z-index: 100;
-          display: flex; align-items: center; justify-content: center;
-          padding: 20px;
-        }
-        .lb-content { max-width: 420px; width: 100%; }
-        .lb-content img {
-          width: 100%;
-          border-radius: 6px;
-          border: 3px solid #1a1a1a;
-        }
-        .lb-meta {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          color: #8a8580;
-          font-size: 0.8rem;
-          margin: 12px 0;
-        }
-        .lb-meta strong {
-          display: block;
-          color: #f5f0eb;
-          font-size: 0.95rem;
-        }
-        .lb-preset {
-          display: block;
-          font-size: 0.75rem;
-          margin-top: 2px;
-        }
-        .lb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-      `}</style>
-    </div>
-  );
+export function photoSrc(p: StoredPhoto): string {
+  return p.publicUrl || p.dataUrl || '';
 }
