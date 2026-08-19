@@ -9,7 +9,7 @@ export const EVENT_CONFIG = {
   name: 'Our Wedding Day',
 
   /** Nama yang mengundang */
-  hostName: 'Aji Sasmito',
+  hostName: 'Aji & Ayu',
 
   /**
    * UUID event di tabel Supabase `events`.
@@ -49,7 +49,7 @@ export const EVENT_CONFIG = {
   polaroid: {
     title: 'Aji & Ayu',
     subtitle: '29 Oktober 2026',
-    hashtag: '#ajidananayu',
+    hashtag: '#savethemoment',
   },
 };
 
