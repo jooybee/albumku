@@ -3,7 +3,9 @@ export interface FilmPreset {
   name: string;
   brand: string;
   description: string;
+  /** CSS filter applied live on the video preview */
   cssFilter: string;
+  /** Canvas processing parameters for the final photo */
   grain: number;
   vignette: number;
   contrast: number;
