@@ -42,7 +42,11 @@ const { title = 'Kamera Film' } = Astro.props;
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+  }
 
   html {
     font-family: var(--font-sans);
@@ -52,10 +56,24 @@ const { title = 'Kamera Film' } = Astro.props;
     -webkit-font-smoothing: antialiased;
   }
 
-  body { min-height: 100dvh; background: var(--bg); }
-  a { color: inherit; text-decoration: none; }
-  button, input, select { font: inherit; }
-  img { max-width: 100%; display: block; }
+  body {
+    min-height: 100dvh;
+    background: var(--bg);
+  }
+
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+
+  button, input, select {
+    font: inherit;
+  }
+
+  img {
+    max-width: 100%;
+    display: block;
+  }
 
   .container {
     width: 100%;
@@ -78,7 +96,10 @@ const { title = 'Kamera Film' } = Astro.props;
     font-weight: 600;
     font-size: 1rem;
     cursor: pointer;
+    transition: background 0.15s, transform 0.1s;
   }
+  .btn-primary:hover { background: var(--cream-hover); }
+  .btn-primary:active { transform: scale(0.98); }
   .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .btn-outline {
@@ -94,6 +115,11 @@ const { title = 'Kamera Film' } = Astro.props;
     font-weight: 500;
     font-size: 0.95rem;
     cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+  }
+  .btn-outline:hover {
+    border-color: rgba(255, 255, 255, 0.35);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .input-dark {
@@ -105,6 +131,7 @@ const { title = 'Kamera Film' } = Astro.props;
     color: var(--text);
     font-size: 1rem;
     outline: none;
+    transition: border-color 0.15s;
   }
   .input-dark::placeholder { color: var(--text-dim); }
   .input-dark:focus { border-color: var(--border-strong); }
