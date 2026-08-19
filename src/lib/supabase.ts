@@ -11,7 +11,6 @@ export const supabase: SupabaseClient | null = isCloudEnabled
   ? createClient(url!, key!)
   : null;
 
-/** Sesuai skema tabel photos yang sudah ada di Supabase kamu */
 export interface CloudPhoto {
   id: string;
   event_id: string;
