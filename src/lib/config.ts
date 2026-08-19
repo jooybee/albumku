@@ -15,7 +15,7 @@ export const EVENT_CONFIG = {
    * UUID event di tabel Supabase `events`.
    * Kosong = mode lokal (foto tidak saling terlihat).
    */
-  eventId: '' as string,
+  eventId: 'df5e8e86-c30f-4ce0-8b1a-ba57750870f3' as string,
 
   /** Maksimal foto per nama tamu */
   maxPhotosPerGuest: 2,
