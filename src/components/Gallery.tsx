@@ -386,13 +386,6 @@ export default function Gallery() {
               )}
               <button
                 type="button"
-                className="chip share-wa"
-                onClick={() => shareWhatsApp(selected)}
-              >
-                WhatsApp
-              </button>
-              <button
-                type="button"
                 className="chip share-ig"
                 onClick={() => shareInstagram(selected)}
               >
