@@ -343,24 +343,28 @@ const camStyles = `
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 14px 16px;
+    padding: 12px 16px 8px;
   }
   .back-btn, .album-link {
-    background: none;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
     border: none;
-    color: #a8a29e;
-    font-size: 0.9rem;
+    color: #f5f0eb;
+    font-size: 1rem;
     font-weight: 500;
     cursor: pointer;
-    padding: 6px 10px;
+    display: flex; align-items: center; justify-content: center;
+    text-decoration: none;
   }
-  .cam-header-info { text-align: center; }
+  .cam-header-info { text-align: center; flex: 1; }
   .cam-event {
     font-family: var(--font-serif);
     font-style: italic;
     font-size: 0.95rem;
+    color: #f5f0eb;
   }
-  .cam-guest { font-size: 0.75rem; color: #8a8580; }
+  .cam-guest { font-size: 0.72rem; color: #8a8580; }
 
   .viewfinder {
     position: relative;
@@ -368,9 +372,9 @@ const camStyles = `
     max-width: 380px;
     aspect-ratio: 3/4;
     background: #000;
-    border-radius: 16px;
+    border-radius: 20px;
     overflow: hidden;
-    border: 3px solid #1a1a1a;
+    border: none;
   }
   .video {
     width: 100%;
@@ -480,13 +484,21 @@ const camStyles = `
     display: flex; align-items: center; justify-content: center;
   }
   .shutter {
-    width: 76px; height: 76px;
+    width: 72px; height: 72px;
     border-radius: 50%;
-    border: 4px solid #ffffff;
-    background: #ffffff;
+    border: 3px solid #f0ebe3;
+    background: transparent;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: transform 0.1s;
+    position: relative;
+    padding: 0;
+  }
+  .shutter::after {
+    content: '';
+    width: 58px; height: 58px;
+    border-radius: 50%;
+    background: #f0ebe3;
   }
   .shutter:active { transform: scale(0.92); }
   .shutter:disabled { opacity: 0.45; }

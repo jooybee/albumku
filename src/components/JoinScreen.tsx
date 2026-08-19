@@ -1,32 +1,36 @@
 import { useState, useEffect, useRef } from 'react';
 import { EVENT_CONFIG } from '../lib/config';
 import Camera from './Camera';
-import { getPhotoCount, savePhoto } from '../lib/storage';
-import { getPreset, FILM_PRESETS } from '../lib/presets';
+import { getPhotoCount, getAllPhotos, savePhoto, photoSrc, type StoredPhoto } from '../lib/storage';
+import { getPreset } from '../lib/presets';
 
 function formatRemaining(endsAt: string | null): string | null {
   if (!endsAt) return null;
   const end = new Date(endsAt).getTime();
   const now = Date.now();
   const diff = end - now;
-  if (diff <= 0) return 'Sudah berakhir';
+  if (diff <= 0) return 'Berakhir';
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
-  if (days > 0) return `${days}d ${hours}h tersisa`;
+  if (days > 0) return `${days}d ${hours}h`;
   const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-  if (hours > 0) return `${hours}j ${mins}m tersisa`;
-  return `${mins}m tersisa`;
+  if (hours > 0) return `${hours}j ${mins}m`;
+  return `${mins}m`;
 }
 
-type Step = 'join' | 'hub' | 'camera' | 'qr';
+type Step = 'join' | 'hub' | 'camera';
 
 export default function JoinScreen() {
   const [name, setName] = useState('');
   const [step, setStep] = useState<Step>('join');
   const [count, setCount] = useState(0);
+  const [totalPhotos, setTotalPhotos] = useState(0);
   const [remaining, setRemaining] = useState(formatRemaining(EVENT_CONFIG.endsAt));
   const [coverIndex, setCoverIndex] = useState(0);
   const [importing, setImporting] = useState(false);
+  const [showQr, setShowQr] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [recent, setRecent] = useState<StoredPhoto[]>([]);
   const fileRef = useRef<HTMLInputElement>(null);
   const covers = EVENT_CONFIG.coverImages?.length
     ? EVENT_CONFIG.coverImages
@@ -34,7 +38,10 @@ export default function JoinScreen() {
 
   useEffect(() => {
     const saved = localStorage.getItem('guest_name');
-    if (saved) setName(saved);
+    if (saved) {
+      setName(saved);
+      // auto hub if already named
+    }
   }, []);
 
   useEffect(() => {
@@ -43,20 +50,25 @@ export default function JoinScreen() {
     return () => clearInterval(t);
   }, []);
 
-  // Slow crossfade between cover images
   useEffect(() => {
     if (covers.length < 2) return;
-    const t = setInterval(() => {
-      setCoverIndex((i) => (i + 1) % covers.length);
-    }, 6000);
+    const t = setInterval(() => setCoverIndex((i) => (i + 1) % covers.length), 7000);
     return () => clearInterval(t);
   }, [covers.length]);
 
+  async function refreshStats(guestName?: string) {
+    const g = guestName || name.trim();
+    try {
+      if (g) setCount(await getPhotoCount(g));
+      const all = await getAllPhotos();
+      setTotalPhotos(all.length);
+      setRecent(all.slice(-6).reverse());
+    } catch {}
+  }
+
   useEffect(() => {
-    if ((step === 'hub' || step === 'camera') && name) {
-      getPhotoCount(name.trim()).then(setCount).catch(() => {});
-    }
-  }, [step, name]);
+    if (step === 'hub') refreshStats();
+  }, [step]);
 
   function handleJoin(e: React.FormEvent) {
     e.preventDefault();
@@ -70,11 +82,10 @@ export default function JoinScreen() {
     if (!files?.length) return;
     const guestName = name.trim();
     if (!guestName) return;
-
     setImporting(true);
+    setShowUpload(false);
     const preset = getPreset(EVENT_CONFIG.defaultPresetId);
     let done = 0;
-
     try {
       for (const file of Array.from(files)) {
         if (!file.type.startsWith('image/')) continue;
@@ -83,11 +94,9 @@ export default function JoinScreen() {
           alert(`Batas ${EVENT_CONFIG.maxPhotosPerGuest} foto tercapai`);
           break;
         }
-
         const dataUrl = await readFileAsDataURL(file);
         const processed = await applyPresetToImage(dataUrl, preset);
         const blob = await dataURLToBlob(processed);
-
         await savePhoto({
           guestName,
           blob,
@@ -97,233 +106,271 @@ export default function JoinScreen() {
         });
         done++;
       }
-      if (done > 0) {
-        setCount((c) => c + done);
-        alert(`${done} foto berhasil diimpor`);
-      }
+      if (done > 0) await refreshStats(guestName);
     } catch (err) {
       console.error(err);
-      alert('Gagal mengimpor foto');
+      alert('Gagal mengunggah foto');
     } finally {
       setImporting(false);
       if (fileRef.current) fileRef.current.value = '';
     }
   }
 
+  const pageUrl = typeof window !== 'undefined' ? window.location.origin + '/' : '';
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=400x400&margin=12&data=${encodeURIComponent(pageUrl)}`;
+
   if (step === 'camera') {
     return (
       <Camera
         guestName={name.trim()}
         initialCount={count}
-        onBack={() => setStep('hub')}
+        onBack={() => {
+          setStep('hub');
+          refreshStats();
+        }}
       />
     );
   }
 
-  if (step === 'qr') {
-    const url = typeof window !== 'undefined' ? window.location.origin + '/' : '';
-    const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&bgcolor=0a0a0a&color=f0ebe3&data=${encodeURIComponent(url)}`;
-    return (
-      <div className="join-page qr-page">
-        <button className="back-top" onClick={() => setStep('hub')}>← Kembali</button>
-        <div className="qr-box">
-          <p className="qr-label">Scan untuk masuk album</p>
-          <img src={qrSrc} alt="QR Code" width={280} height={280} className="qr-img" />
-          <p className="qr-url">{url}</p>
-          <button
-            className="btn-outline"
-            style={{ marginTop: 16, maxWidth: 280 }}
-            onClick={() => {
-              navigator.clipboard?.writeText(url);
-              alert('Link disalin');
-            }}
-          >
-            Salin link
-          </button>
-        </div>
-        <style>{qrStyles}</style>
-      </div>
-    );
-  }
-
+  // —— HUB (mirip satualbum dashboard) ——
   if (step === 'hub') {
     return (
-      <div className="join-page hub-page">
-        <CoverHeader covers={covers} index={coverIndex} />
-        <div className="hub-content">
-          <p className="hub-guest">Halo, {name.trim()}</p>
-          <h2 className="hub-title">{EVENT_CONFIG.name}</h2>
-          <p className="hub-meta">
-            {count} / {EVENT_CONFIG.maxPhotosPerGuest} foto
-          </p>
+      <div className="hub">
+        {/* Cover background */}
+        <div className="hub-cover">
+          {covers.map((src, i) => (
+            <img key={src + i} src={src} alt="" className={`hub-cover-img ${i === coverIndex ? 'on' : ''}`} />
+          ))}
+          <div className="hub-cover-fade" />
+        </div>
 
-          {/* White camera button */}
-          <button
-            className="cam-white-btn"
-            onClick={() => setStep('camera')}
-            aria-label="Buka kamera"
-          >
-            <span className="cam-icon">📷</span>
-          </button>
-          <p className="cam-label">Kamera</p>
+        <header className="hub-top">
+          <button className="icon-btn" onClick={() => setStep('join')} aria-label="Kembali">←</button>
+          <button className="icon-btn" aria-label="Pengaturan" onClick={() => alert('Ubah pengaturan di src/lib/config.ts')}>⚙</button>
+        </header>
 
-          <div className="hub-actions">
-            <button className="hub-action" onClick={() => fileRef.current?.click()} disabled={importing}>
-              <span className="hub-action-icon">🖼️</span>
-              <span>{importing ? 'Mengimpor…' : 'Import foto'}</span>
-            </button>
-            <button className="hub-action" onClick={() => setStep('qr')}>
-              <span className="hub-action-icon">⬚</span>
-              <span>QR Code</span>
-            </button>
-            <a className="hub-action" href="/gallery">
-              <span className="hub-action-icon">🎞️</span>
-              <span>Lihat album</span>
-            </a>
+        <div className="hub-body">
+          <h1 className="hub-title">{EVENT_CONFIG.name}</h1>
+
+          <div className="hub-stats">
+            <div className="stat">
+              <strong>{totalPhotos}</strong>
+              <span>Momen</span>
+            </div>
+            <div className="stat">
+              <strong>{remaining || '∞'}</strong>
+              <span>Tersisa</span>
+            </div>
+            <div className="stat">
+              <strong>{count}/{EVENT_CONFIG.maxPhotosPerGuest}</strong>
+              <span>Roll-mu</span>
+            </div>
           </div>
 
-          <input
-            ref={fileRef}
-            type="file"
-            accept="image/*"
-            multiple
-            hidden
-            onChange={(e) => handleImport(e.target.files)}
-          />
+          {/* Camera + QR + Upload row */}
+          <div className="hub-cta-row">
+            <button className="btn-cam" onClick={() => setStep('camera')}>
+              <CamIcon />
+            </button>
+            <button className="btn-sq" onClick={() => setShowQr(true)} aria-label="QR">
+              <QrIcon />
+            </button>
+            <button className="btn-sq" onClick={() => setShowUpload(true)} aria-label="Unggah" disabled={importing}>
+              <UploadIcon />
+            </button>
+          </div>
+
+          {/* Photo grid or empty */}
+          {recent.length === 0 ? (
+            <div className="hub-empty">
+              <p className="empty-title">Belum ada foto</p>
+              <p className="empty-sub">Ambil foto atau unggah dari galeri untuk memulai</p>
+            </div>
+          ) : (
+            <div className="hub-grid">
+              {recent.map((p) => (
+                <a key={p.id} href="/gallery" className="hub-thumb">
+                  <img src={photoSrc(p)} alt="" />
+                </a>
+              ))}
+            </div>
+          )}
+
+          <a href="/gallery" className="hub-album-link">Lihat semua foto →</a>
         </div>
-        <style>{hubStyles}</style>
+
+        {/* QR bottom sheet */}
+        {showQr && (
+          <div className="sheet-backdrop" onClick={() => setShowQr(false)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="sheet-handle" />
+              <h2 className="sheet-title">Undang tamu ke acaramu.</h2>
+              <p className="sheet-sub">
+                Lihat dunia dari sudut pandang mereka.
+                <br />Undang tamumu untuk membuat acara ini tak terlupakan.
+              </p>
+              <div className="qr-wrap">
+                <img src={qrSrc} alt="QR" width={220} height={220} />
+              </div>
+              <div className="sheet-actions">
+                <button
+                  className="sheet-btn"
+                  onClick={() => {
+                    navigator.clipboard?.writeText(pageUrl);
+                    alert('Tautan disalin');
+                  }}
+                >
+                  ↗ Bagikan Tautan
+                </button>
+                <a className="sheet-btn" href={qrSrc} download="album-qr.png" target="_blank" rel="noreferrer">
+                  ↓ Simpan QR
+                </a>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Upload bottom sheet */}
+        {showUpload && (
+          <div className="sheet-backdrop" onClick={() => setShowUpload(false)}>
+            <div className="sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="sheet-handle" />
+              <div className="upload-icon-wrap"><UploadIcon large /></div>
+              <h2 className="sheet-title">Unggah foto</h2>
+              <p className="sheet-sub">Foto akan diunggah dalam resolusi penuh.</p>
+              <div className="upload-opt">
+                <span className="radio-on" />
+                <div>
+                  <strong>Ukuran penuh</strong>
+                  <span>Pertahankan resolusi penuh.</span>
+                </div>
+              </div>
+              <button className="btn-primary" onClick={() => fileRef.current?.click()}>
+                ↗ Pilih foto
+              </button>
+              <button className="sheet-cancel" onClick={() => setShowUpload(false)}>Batal</button>
+            </div>
+          </div>
+        )}
+
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          multiple
+          hidden
+          onChange={(e) => handleImport(e.target.files)}
+        />
+
+        <style>{hubCss}</style>
       </div>
     );
   }
 
-  // —— Join screen ——
+  // —— JOIN (mirip satualbum event landing) ——
   return (
-    <div className="join-page">
-      <CoverHeader covers={covers} index={coverIndex} />
+    <div className="join">
+      <div className="join-cover">
+        {covers.map((src, i) => (
+          <img key={src + i} src={src} alt="" className={`join-cover-img ${i === coverIndex ? 'on' : ''}`} />
+        ))}
+        <div className="join-cover-fade" />
+      </div>
+
       <div className="lang-badge">ID</div>
 
-      <div className="join-content">
-        <div className="host-pill">
-          <span className="pill-icon">👤</span>
-          Diundang oleh {EVENT_CONFIG.hostName}
-        </div>
-
-        <h1 className="event-title">{EVENT_CONFIG.name}</h1>
-
-        <div className="meta-row">
-          {remaining && (
-            <span className="meta-item">
-              <span className="meta-icon">🕐</span> {remaining}
-            </span>
-          )}
-          <span className="meta-item">
-            <span className="meta-icon">📷</span> {EVENT_CONFIG.maxPhotosPerGuest} foto tersedia
-          </span>
+      <div className="join-body">
+        <div className="host-pill">👤 Diundang oleh {EVENT_CONFIG.hostName}</div>
+        <h1 className="join-title">{EVENT_CONFIG.name}</h1>
+        <div className="join-meta">
+          {remaining && <span>🕐 {remaining} tersisa</span>}
+          <span>📷 {EVENT_CONFIG.maxPhotosPerGuest} foto tersedia</span>
         </div>
 
         <form onSubmit={handleJoin} className="join-form">
           <div className="input-wrap">
-            <span className="input-icon">👤</span>
+            <span className="input-ico">👤</span>
             <input
-              type="text"
               className="input-dark"
               placeholder="Masukkan namamu"
               value={name}
               onChange={(e) => setName(e.target.value)}
               maxLength={40}
               autoComplete="name"
-              autoFocus
             />
           </div>
-
           <button type="submit" className="btn-primary" disabled={!name.trim()}>
             Masuk ke album →
           </button>
         </form>
-
         <a href="/gallery" className="btn-outline" style={{ marginTop: 12 }}>
           Lihat album saja
         </a>
       </div>
-
-      <p className="support">Tanpa login · Foto bersama di album</p>
-      <style>{joinStyles}</style>
+      <style>{joinCss}</style>
     </div>
   );
 }
 
-function CoverHeader({ covers, index }: { covers: string[]; index: number }) {
-  const fade = EVENT_CONFIG.coverFadeStrength ?? 0.9;
+function CamIcon() {
   return (
-    <div className="cover-header">
-      {covers.map((src, i) => (
-        <img
-          key={src + i}
-          src={src}
-          alt=""
-          className={`cover-img ${i === index ? 'active' : ''}`}
-        />
-      ))}
-      <div
-        className="cover-fade"
-        style={{
-          background: `linear-gradient(to bottom,
-            rgba(10,10,10,0) 0%,
-            rgba(10,10,10,${fade * 0.35}) 40%,
-            rgba(10,10,10,${fade * 0.75}) 70%,
-            rgba(10,10,10,${Math.min(1, fade)}) 100%)`,
-        }}
-      />
-    </div>
+    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" strokeWidth="1.8">
+      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+      <circle cx="12" cy="13" r="4" />
+    </svg>
+  );
+}
+function QrIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <path d="M14 14h3v3h-3zM20 14v3M14 20h3M20 20h.01" />
+    </svg>
+  );
+}
+function UploadIcon({ large }: { large?: boolean }) {
+  const s = large ? 28 : 22;
+  return (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <circle cx="8.5" cy="8.5" r="1.5" />
+      <path d="M21 15l-5-5L5 21" />
+      <path d="M16 3v6M13 6h6" />
+    </svg>
   );
 }
 
 function readFileAsDataURL(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
+  return new Promise((res, rej) => {
     const r = new FileReader();
-    r.onload = () => resolve(r.result as string);
-    r.onerror = reject;
+    r.onload = () => res(r.result as string);
+    r.onerror = rej;
     r.readAsDataURL(file);
   });
 }
-
 function dataURLToBlob(dataUrl: string): Promise<Blob> {
   return fetch(dataUrl).then((r) => r.blob());
 }
-
-async function applyPresetToImage(
-  dataUrl: string,
-  preset: ReturnType<typeof getPreset>
-): Promise<string> {
+async function applyPresetToImage(dataUrl: string, preset: ReturnType<typeof getPreset>): Promise<string> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
       const canvas = document.createElement('canvas');
       const maxW = 1600;
-      let w = img.width;
-      let h = img.height;
-      if (w > maxW) {
-        h = Math.round((h * maxW) / w);
-        w = maxW;
-      }
-      canvas.width = w;
-      canvas.height = h;
+      let w = img.width, h = img.height;
+      if (w > maxW) { h = Math.round((h * maxW) / w); w = maxW; }
+      canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d', { willReadFrequently: true })!;
       ctx.drawImage(img, 0, 0, w, h);
-
-      // simple film grade (same idea as Camera)
       const imageData = ctx.getImageData(0, 0, w, h);
       const data = imageData.data;
       const p = preset;
       for (let i = 0; i < data.length; i += 4) {
         let r = data[i], g = data[i + 1], b = data[i + 2];
-        if (p.temperature > 0) {
-          r = Math.min(255, r + p.temperature * 0.6);
-          b = Math.max(0, b - p.temperature * 0.3);
-        } else {
-          b = Math.min(255, b - p.temperature * 0.6);
-          r = Math.max(0, r + p.temperature * 0.3);
-        }
+        if (p.temperature > 0) { r = Math.min(255, r + p.temperature * 0.6); b = Math.max(0, b - p.temperature * 0.3); }
+        else { b = Math.min(255, b - p.temperature * 0.6); r = Math.max(0, r + p.temperature * 0.3); }
         r = ((r / 255 - 0.5) * p.contrast + 0.5) * 255;
         g = ((g / 255 - 0.5) * p.contrast + 0.5) * 255;
         b = ((b / 255 - 0.5) * p.contrast + 0.5) * 255;
@@ -332,14 +379,8 @@ async function applyPresetToImage(
         g = gray + (g - gray) * p.saturation;
         b = gray + (b - gray) * p.saturation;
         r *= p.brightness; g *= p.brightness; b *= p.brightness;
-        if (p.grain > 0) {
-          const n = (Math.random() - 0.5) * p.grain * 40;
-          r += n; g += n; b += n;
-        }
-        if (p.saturation === 0) {
-          const bw = 0.299 * r + 0.587 * g + 0.114 * b;
-          r = g = b = bw;
-        }
+        if (p.grain > 0) { const n = (Math.random() - 0.5) * p.grain * 40; r += n; g += n; b += n; }
+        if (p.saturation === 0) { const bw = 0.299 * r + 0.587 * g + 0.114 * b; r = g = b = bw; }
         data[i] = Math.max(0, Math.min(255, r));
         data[i + 1] = Math.max(0, Math.min(255, g));
         data[i + 2] = Math.max(0, Math.min(255, b));
@@ -359,255 +400,246 @@ async function applyPresetToImage(
   });
 }
 
-const joinStyles = `
-  .join-page {
+const joinCss = `
+  .join {
     min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 24px 20px 40px;
     position: relative;
     background: #0a0a0a;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 24px 20px 36px;
     overflow: hidden;
   }
-  .cover-header {
-    position: absolute;
-    inset: 0 0 35% 0;
-    z-index: 0;
-    overflow: hidden;
+  .join-cover { position: absolute; inset: 0 0 28% 0; z-index: 0; }
+  .join-cover-img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; opacity: 0; transition: opacity 2.2s ease;
   }
-  .cover-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 2s ease;
-  }
-  .cover-img.active { opacity: 1; }
-  .cover-fade {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
+  .join-cover-img.on { opacity: 1; }
+  .join-cover-fade {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom,
+      rgba(10,10,10,0.15) 0%,
+      rgba(10,10,10,0.45) 45%,
+      rgba(10,10,10,0.88) 75%,
+      #0a0a0a 100%);
   }
   .lang-badge {
-    position: absolute;
-    top: 16px;
-    right: 16px;
-    padding: 6px 14px;
-    border-radius: 999px;
-    border: 1px solid rgba(255,255,255,0.15);
-    font-size: 0.75rem;
-    font-weight: 500;
-    color: #a8a29e;
-    z-index: 2;
+    position: absolute; top: 16px; right: 16px; z-index: 2;
+    padding: 6px 14px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.14);
+    font-size: 0.75rem; color: #a8a29e;
   }
-  .join-content {
-    width: 100%;
-    max-width: 360px;
-    text-align: center;
-    position: relative;
-    z-index: 1;
-  }
+  .join-body { position: relative; z-index: 1; width: 100%; max-width: 380px; margin: 0 auto; text-align: center; }
   .host-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    padding: 8px 16px;
-    background: rgba(255,255,255,0.08);
-    border-radius: 999px;
-    font-size: 0.85rem;
-    color: #c4bfb8;
-    margin-bottom: 20px;
-    backdrop-filter: blur(8px);
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 16px; border-radius: 999px;
+    background: rgba(255,255,255,0.08); backdrop-filter: blur(10px);
+    font-size: 0.85rem; color: #c4bfb8; margin-bottom: 18px;
   }
-  .event-title {
-    font-family: var(--font-serif);
-    font-style: italic;
-    font-weight: 400;
-    font-size: clamp(2.4rem, 9vw, 3.2rem);
-    line-height: 1.15;
-    letter-spacing: -0.02em;
-    color: #f5f0eb;
-    margin-bottom: 16px;
+  .join-title {
+    font-family: var(--font-serif); font-style: italic; font-weight: 400;
+    font-size: clamp(2.5rem, 10vw, 3.4rem); line-height: 1.12;
+    color: #f5f0eb; margin-bottom: 14px;
   }
-  .meta-row {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: center;
-    gap: 16px;
-    margin-bottom: 28px;
-    font-size: 0.85rem;
-    color: #8a8580;
+  .join-meta {
+    display: flex; flex-wrap: wrap; justify-content: center; gap: 14px;
+    font-size: 0.85rem; color: #8a8580; margin-bottom: 28px;
   }
-  .meta-item { display: inline-flex; align-items: center; gap: 5px; }
   .join-form { display: flex; flex-direction: column; gap: 12px; }
   .input-wrap { position: relative; }
-  .input-icon {
-    position: absolute;
-    left: 16px;
-    top: 50%;
-    transform: translateY(-50%);
-    font-size: 0.9rem;
-    opacity: 0.5;
-    pointer-events: none;
-  }
-  .support {
-    position: relative;
-    z-index: 1;
-    margin-top: 28px;
-    font-size: 0.75rem;
-    color: #5c5854;
+  .input-ico {
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    opacity: 0.45; pointer-events: none;
   }
 `;
 
-const hubStyles = `
-  .hub-page {
+const hubCss = `
+  .hub {
     min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: flex-end;
-    padding: 24px 20px 40px;
     position: relative;
     background: #0a0a0a;
-    overflow: hidden;
+    color: #f5f0eb;
+    overflow-x: hidden;
   }
-  .cover-header {
-    position: absolute;
-    inset: 0 0 30% 0;
-    z-index: 0;
-    overflow: hidden;
-  }
-  .cover-img {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    opacity: 0;
-    transition: opacity 2s ease;
-  }
-  .cover-img.active { opacity: 1; }
-  .cover-fade {
-    position: absolute;
-    inset: 0;
-    pointer-events: none;
-  }
-  .hub-content {
+  .hub-cover {
     position: relative;
-    z-index: 1;
-    width: 100%;
-    max-width: 360px;
+    height: 42vh;
+    min-height: 240px;
+    max-height: 380px;
+    overflow: hidden;
+  }
+  .hub-cover-img {
+    position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; opacity: 0; transition: opacity 2.2s ease;
+  }
+  .hub-cover-img.on { opacity: 1; }
+  .hub-cover-fade {
+    position: absolute; inset: 0;
+    background: linear-gradient(to bottom,
+      rgba(10,10,10,0.2) 0%,
+      rgba(10,10,10,0.55) 50%,
+      #0a0a0a 100%);
+  }
+  .hub-top {
+    position: absolute; top: 0; left: 0; right: 0; z-index: 5;
+    display: flex; justify-content: space-between;
+    padding: 14px 16px;
+  }
+  .icon-btn {
+    width: 40px; height: 40px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,0.35);
+    color: #f5f0eb; font-size: 1.1rem; cursor: pointer;
+    backdrop-filter: blur(8px);
+  }
+  .hub-body {
+    position: relative; z-index: 2;
+    margin-top: -28px;
+    padding: 0 20px 40px;
     text-align: center;
   }
-  .hub-guest {
-    font-size: 0.85rem;
-    color: #8a8580;
-    margin-bottom: 4px;
-  }
   .hub-title {
-    font-family: var(--font-serif);
-    font-style: italic;
-    font-weight: 400;
-    font-size: 1.75rem;
-    color: #f5f0eb;
-    margin-bottom: 6px;
+    font-family: var(--font-serif); font-style: italic; font-weight: 400;
+    font-size: clamp(1.9rem, 7vw, 2.4rem);
+    margin-bottom: 20px; color: #f5f0eb;
   }
-  .hub-meta {
-    font-size: 0.8rem;
-    color: #5c5854;
+  .hub-stats {
+    display: flex; justify-content: center; gap: 0;
+    margin-bottom: 24px;
+  }
+  .stat {
+    flex: 1; max-width: 110px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .stat strong {
+    font-size: 1.15rem; font-weight: 600; color: #f5f0eb;
+  }
+  .stat span {
+    font-size: 0.72rem; color: #8a8580;
+  }
+  .hub-cta-row {
+    display: flex; gap: 10px; align-items: center;
     margin-bottom: 28px;
   }
-  .cam-white-btn {
-    width: 88px;
-    height: 88px;
-    border-radius: 50%;
+  .btn-cam {
+    flex: 1;
+    height: 52px;
+    border-radius: 999px;
     border: none;
     background: #f0ebe3;
-    color: #0a0a0a;
+    display: flex; align-items: center; justify-content: center;
     cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 4px 24px rgba(0,0,0,0.35);
-    transition: transform 0.15s, background 0.15s;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.25);
   }
-  .cam-white-btn:active { transform: scale(0.94); }
-  .cam-white-btn:hover { background: #e4ddd3; }
-  .cam-icon { font-size: 2rem; }
-  .cam-label {
-    margin-top: 10px;
-    margin-bottom: 28px;
-    font-size: 0.85rem;
-    font-weight: 600;
-    color: #c4bfb8;
-  }
-  .hub-actions {
-    display: flex;
-    justify-content: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .hub-action {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 14px 16px;
-    min-width: 96px;
+  .btn-cam:active { transform: scale(0.98); }
+  .btn-sq {
+    width: 52px; height: 52px; flex-shrink: 0;
+    border-radius: 14px;
+    border: 1.5px solid rgba(255,255,255,0.14);
     background: rgba(255,255,255,0.06);
-    border: 1px solid rgba(255,255,255,0.1);
-    border-radius: 16px;
+    color: #f5f0eb;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+  }
+  .btn-sq:disabled { opacity: 0.4; }
+  .hub-empty { padding: 32px 12px; }
+  .empty-title { font-size: 0.95rem; color: #a8a29e; margin-bottom: 6px; }
+  .empty-sub { font-size: 0.8rem; color: #5c5854; }
+  .hub-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .hub-thumb {
+    aspect-ratio: 1;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #1a1a1a;
+  }
+  .hub-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .hub-album-link {
+    display: inline-block;
+    font-size: 0.85rem;
     color: #c4bfb8;
-    font-size: 0.75rem;
+    margin-top: 8px;
+  }
+
+  /* Bottom sheets */
+  .sheet-backdrop {
+    position: fixed; inset: 0; z-index: 50;
+    background: rgba(0,0,0,0.55);
+    display: flex; align-items: flex-end; justify-content: center;
+  }
+  .sheet {
+    width: 100%; max-width: 480px;
+    background: #1c1c1c;
+    border-radius: 20px 20px 0 0;
+    padding: 12px 20px 32px;
+    text-align: center;
+  }
+  .sheet-handle {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: #444; margin: 0 auto 18px;
+  }
+  .sheet-title {
+    font-family: var(--font-serif); font-style: italic;
+    font-weight: 400; font-size: 1.45rem;
+    color: #f5f0eb; margin-bottom: 8px;
+  }
+  .sheet-sub {
+    font-size: 0.85rem; color: #8a8580;
+    line-height: 1.45; margin-bottom: 20px;
+  }
+  .qr-wrap {
+    display: inline-block;
+    padding: 12px;
+    background: #fff;
+    border-radius: 16px;
+    margin-bottom: 20px;
+  }
+  .qr-wrap img { display: block; border-radius: 4px; }
+  .sheet-actions {
+    display: flex; gap: 10px;
+  }
+  .sheet-btn {
+    flex: 1;
+    padding: 12px 10px;
+    border-radius: 999px;
+    border: 1.5px solid rgba(255,255,255,0.14);
+    background: rgba(255,255,255,0.06);
+    color: #f5f0eb;
+    font-size: 0.85rem;
     font-weight: 500;
     cursor: pointer;
     text-decoration: none;
+    display: flex; align-items: center; justify-content: center;
   }
-  .hub-action:disabled { opacity: 0.5; }
-  .hub-action-icon { font-size: 1.25rem; }
-`;
-
-const qrStyles = `
-  .qr-page {
-    min-height: 100dvh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    background: #0a0a0a;
-    position: relative;
+  .upload-icon-wrap {
+    width: 48px; height: 48px; border-radius: 12px;
+    background: rgba(255,255,255,0.08);
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 12px;
+    color: #c4bfb8;
   }
-  .back-top {
-    position: absolute;
-    top: 16px;
-    left: 16px;
-    background: none;
-    border: none;
-    color: #8a8580;
-    font-size: 0.9rem;
-    cursor: pointer;
-  }
-  .qr-box { text-align: center; }
-  .qr-label {
-    font-size: 0.9rem;
-    color: #8a8580;
+  .upload-opt {
+    display: flex; align-items: flex-start; gap: 12px;
+    text-align: left;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1.5px solid rgba(255,255,255,0.14);
     margin-bottom: 16px;
   }
-  .qr-img {
-    border-radius: 16px;
-    border: 3px solid #1a1a1a;
-    background: #0a0a0a;
+  .upload-opt strong { display: block; font-size: 0.9rem; color: #f5f0eb; }
+  .upload-opt span { font-size: 0.78rem; color: #8a8580; }
+  .radio-on {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 5px solid #f0ebe3; margin-top: 2px; flex-shrink: 0;
   }
-  .qr-url {
-    margin-top: 12px;
-    font-size: 0.75rem;
-    color: #5c5854;
-    word-break: break-all;
-    max-width: 280px;
+  .sheet-cancel {
+    margin-top: 14px;
+    background: none; border: none;
+    color: #8a8580; font-size: 0.9rem; cursor: pointer;
   }
 `;
