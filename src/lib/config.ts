@@ -15,10 +15,10 @@ export const EVENT_CONFIG = {
    * UUID event di tabel Supabase `events`.
    * Kosong = mode lokal (foto tidak saling terlihat).
    */
-  eventId: 'df5e8e86-c30f-4ce0-8b1a-ba57750870f3' as string,
+  eventId: '' as string,
 
   /** Maksimal foto per nama tamu */
-  maxPhotosPerGuest: 10,
+  maxPhotosPerGuest: 2,
 
   /**
    * Waktu berakhir (ISO) atau null = tanpa countdown.
@@ -44,4 +44,11 @@ export const EVENT_CONFIG = {
    * 1 = sangat gelap di bawah, 0 = foto full terlihat.
    */
   coverFadeStrength: 0.92,
+
+  /**
+   * PIN untuk membuka Pengaturan Acara (halaman /settings).
+   * Ganti angka ini. Jangan share ke tamu.
+   */
+  hostPin: '1234',
 };
+
