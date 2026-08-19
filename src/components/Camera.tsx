@@ -482,8 +482,8 @@ const camStyles = `
   .shutter {
     width: 76px; height: 76px;
     border-radius: 50%;
-    border: 4px solid #f0ebe3;
-    background: #f0ebe3;
+    border: 4px solid #ffffff;
+    background: #ffffff;
     cursor: pointer;
     display: flex; align-items: center; justify-content: center;
     transition: transform 0.1s;
