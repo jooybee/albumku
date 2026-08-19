@@ -146,15 +146,15 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
 
 
   /** Frame polaroid tebal (border putih klasik) + teks estetis */
-  function applyPolaroidFrame(
+  
+function applyPolaroidFrame(
     srcCanvas: HTMLCanvasElement
   ): { canvas: HTMLCanvasElement; dataUrl: string } {
     const photoW = srcCanvas.width;
     const photoH = srcCanvas.height;
-    // Border polaroid — cukup tebal, bawah proporsional (tidak terlalu tinggi)
     const side = Math.round(photoW * 0.07);
-    const top = Math.round(photoW * 0.065);
-    const bottom = Math.round(photoH * 0.2);
+    const top = Math.round(photoW * 0.06);
+    const bottom = Math.round(photoH * 0.18);
     const outW = photoW + side * 2;
     const outH = photoH + top + bottom;
 
@@ -163,49 +163,59 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
     out.height = outH;
     const ctx = out.getContext('2d')!;
 
-    // kertas polaroid — putih gading
-    ctx.fillStyle = '#f7f4ef';
+    // kertas polaroid
+    ctx.fillStyle = '#f5f0e8';
     ctx.fillRect(0, 0, outW, outH);
 
-    // sedikit inset gelap di tepi foto (tebal border terasa)
-    ctx.fillStyle = '#e8e4de';
-    ctx.fillRect(side - 2, top - 2, photoW + 4, photoH + 4);
-
+    // bayangan soft di belakang foto
+    ctx.shadowColor = 'rgba(0,0,0,0.12)';
+    ctx.shadowBlur = Math.round(photoW * 0.015);
+    ctx.shadowOffsetY = Math.round(photoW * 0.008);
     ctx.drawImage(srcCanvas, side, top, photoW, photoH);
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
 
-    const polaroid = EVENT_CONFIG.polaroid || {
+    // garis tipis tepi foto
+    ctx.strokeStyle = 'rgba(0,0,0,0.07)';
+    ctx.lineWidth = Math.max(1, Math.round(photoW * 0.0025));
+    ctx.strokeRect(side + 0.5, top + 0.5, photoW - 1, photoH - 1);
+
+    const polaroid = (EVENT_CONFIG as {
+      polaroid?: { title?: string; subtitle?: string; hashtag?: string };
+    }).polaroid || {
       title: 'Aji & Ayu',
       subtitle: '29 Oktober 2026',
-      hashtag: '',
+      hashtag: '#ajidananayu',
     };
 
-    const textAreaY = top + photoH;
     const textCenterX = outW / 2;
+    const textAreaY = top + photoH;
 
-    // Judul besar — fokus visual
-    const titleSize = Math.max(34, Math.round(outW * 0.088));
+    // judul besar
+    const titleSize = Math.max(32, Math.round(outW * 0.085));
     ctx.fillStyle = '#1a1a1a';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `italic 500 ${titleSize}px "Cormorant Garamond", "Instrument Serif", Georgia, serif`;
-    ctx.fillText(polaroid.title, textCenterX, textAreaY + bottom * 0.36);
+    ctx.fillText(polaroid.title || 'Aji & Ayu', textCenterX, textAreaY + bottom * 0.38);
 
-    // hashtag + tanggal — kalem, spacing rapat
+    // hashtag + tanggal — kalem
     let y = textAreaY + bottom * 0.62;
     if (polaroid.hashtag) {
       const tagSize = Math.max(11, Math.round(outW * 0.024));
-      ctx.fillStyle = '#b0aaa4';
+      ctx.fillStyle = '#a8a29e';
       ctx.font = `400 ${tagSize}px Inter, system-ui, sans-serif`;
       ctx.fillText(polaroid.hashtag, textCenterX, y);
-      y = textAreaY + bottom * 0.78;
+      y = textAreaY + bottom * 0.8;
     } else {
-      y = textAreaY + bottom * 0.7;
+      y = textAreaY + bottom * 0.72;
     }
 
     const subSize = Math.max(11, Math.round(outW * 0.025));
-    ctx.fillStyle = '#b0aaa4';
+    ctx.fillStyle = '#a8a29e';
     ctx.font = `400 ${subSize}px Inter, system-ui, sans-serif`;
-    ctx.fillText(polaroid.subtitle, textCenterX, y);
+    ctx.fillText(polaroid.subtitle || '', textCenterX, y);
 
     return { canvas: out, dataUrl: out.toDataURL('image/jpeg', 0.92) };
   }
@@ -365,8 +375,17 @@ export default function Camera({ guestName, initialCount, onBack }: Props) {
           )}
 
           <div className="controls">
-            <button className="side-btn" onClick={() => setShowFilters((v) => !v)} aria-label="Filter">
-              🎞
+            <button
+              className="side-btn"
+              onClick={() => setFacingMode((p) => (p === 'user' ? 'environment' : 'user'))}
+              aria-label="Ganti kamera"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 2v4h4" />
+                <path d="M3 12a9 9 0 0 1 15-6.7L21 6" />
+                <path d="M7 22v-4H3" />
+                <path d="M21 12a9 9 0 0 1-15 6.7L3 18" />
+              </svg>
             </button>
             <button
               className="shutter"
@@ -546,15 +565,23 @@ const camStyles = `
     max-width: 380px;
     padding: 24px 32px 8px;
   }
-  .side-btn {
-    width: 48px; height: 48px;
+ .side-btn {
+    width: 48px;
+    height: 48px;
     border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.15);
-    background: #1c1c1c;
-    font-size: 1.3rem;
+    border: 1.5px solid rgba(255,255,255,0.22);
+    background: rgba(255,255,255,0.12);
+    color: #f5f0eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    color: white;
-    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+  .side-btn:active {
+    transform: scale(0.94);
+    background: rgba(255,255,255,0.2);
   }
   .shutter {
     width: 72px; height: 72px;
