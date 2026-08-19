@@ -7,7 +7,6 @@ import {
   type StoredPhoto,
 } from '../lib/storage';
 import { EVENT_CONFIG } from '../lib/config';
-import { loadSettings } from '../lib/settings';
 
 function formatRevealCountdown(revealAt: string | null): string | null {
   if (!revealAt) return null;
@@ -28,30 +27,13 @@ function formatRevealCountdown(revealAt: string | null): string | null {
 function formatRevealLabel(revealAt: string): string {
   const d = new Date(revealAt);
   if (Number.isNaN(d.getTime())) return '';
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
-  return `${d.getDate()} ${months[d.getMonth()]}, \( {String(d.getHours()).padStart(2, '0')}. \){String(d.getMinutes()).padStart(2, '0')}`;
-}
-
-/** Baca revealAt: null/kosong di Settings = MATIKAN reveal (tidak fallback ke config) */
-function resolveRevealAt(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const raw = localStorage.getItem('albumku_settings');
-    if (raw) {
-      const parsed = JSON.parse(raw) as { revealAt?: string | null };
-      if ('revealAt' in parsed) {
-        const v = parsed.revealAt;
-        if (v == null || v === '' || v === 'null') return null;
-        if (Number.isNaN(new Date(v).getTime())) return null;
-        return v;
-      }
-    }
-  } catch {
-    /* ignore */
-  }
-  const fromConfig = (EVENT_CONFIG as { revealAt?: string | null }).revealAt;
-  if (fromConfig == null || fromConfig === '') return null;
-  return fromConfig;
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+    'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des',
+  ];
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  return `${d.getDate()} ${months[d.getMonth()]}, \( {hh}. \){mm}`;
 }
 
 export default function Gallery() {
@@ -63,12 +45,15 @@ export default function Gallery() {
   const [error, setError] = useState<string | null>(null);
   const [likes, setLikes] = useState<Record<string, number>>({});
   const [myLiked, setMyLiked] = useState<Record<string, boolean>>({});
-  const [revealAt, setRevealAt] = useState<string | null>(null);
 
   const sharedAlbum = isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
-  const settings = typeof window !== 'undefined' ? loadSettings() : null;
-  const enableLikes = settings?.enableLikes !== false;
-  const isRevealed = !revealAt || Date.now() >= new Date(revealAt).getTime();
+  const enableLikes = true;
+
+  // HANYA dari config.ts — sama di HP & laptop (bukan Settings)
+  const revealAt =
+    (EVENT_CONFIG as { revealAt?: string | null }).revealAt ?? null;
+  const isRevealed =
+    !revealAt || Date.now() >= new Date(revealAt).getTime();
 
   useEffect(() => {
     try {
@@ -77,7 +62,6 @@ export default function Gallery() {
       if (raw) setLikes(JSON.parse(raw));
       const liked = localStorage.getItem('albumku_my_liked');
       if (liked) setMyLiked(JSON.parse(liked));
-      setRevealAt(resolveRevealAt());
     } catch {
       /* ignore */
     }
