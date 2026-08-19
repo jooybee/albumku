@@ -16,7 +16,7 @@ const { title = 'Kamera Film' } = Astro.props;
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,500;0,600;1,400;1,500;1,600&family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   </head>
   <body>
     <slot />
@@ -38,16 +38,11 @@ const { title = 'Kamera Film' } = Astro.props;
     --pill-bg: rgba(255, 255, 255, 0.08);
     --radius-pill: 999px;
     --radius: 14px;
-    --font-serif: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+    --font-serif: 'Cormorant Garamond', 'Instrument Serif', Georgia, 'Times New Roman', serif;
     --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
   }
 
-  * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
-  }
-
+  * { box-sizing: border-box; margin: 0; padding: 0; }
   html {
     font-family: var(--font-sans);
     background: var(--bg);
@@ -55,25 +50,10 @@ const { title = 'Kamera Film' } = Astro.props;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
   }
-
-  body {
-    min-height: 100dvh;
-    background: var(--bg);
-  }
-
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-
-  button, input, select {
-    font: inherit;
-  }
-
-  img {
-    max-width: 100%;
-    display: block;
-  }
+  body { min-height: 100dvh; background: var(--bg); }
+  a { color: inherit; text-decoration: none; }
+  button, input, select { font: inherit; }
+  img { max-width: 100%; display: block; }
 
   .container {
     width: 100%;
@@ -115,11 +95,6 @@ const { title = 'Kamera Film' } = Astro.props;
     font-weight: 500;
     font-size: 0.95rem;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
-  }
-  .btn-outline:hover {
-    border-color: rgba(255, 255, 255, 0.35);
-    background: rgba(255, 255, 255, 0.04);
   }
 
   .input-dark {
@@ -131,7 +106,6 @@ const { title = 'Kamera Film' } = Astro.props;
     color: var(--text);
     font-size: 1rem;
     outline: none;
-    transition: border-color 0.15s;
   }
   .input-dark::placeholder { color: var(--text-dim); }
   .input-dark:focus { border-color: var(--border-strong); }
