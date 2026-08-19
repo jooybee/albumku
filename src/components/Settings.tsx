@@ -35,8 +35,7 @@ export default function Settings() {
 
   function update<K extends keyof EventSettings>(key: K, value: EventSettings[K]) {
     if (!s) return;
-    const next = { ...s, [key]: value };
-    setS(next);
+    setS({ ...s, [key]: value });
   }
 
   function handleSave() {
@@ -87,7 +86,6 @@ export default function Settings() {
       <h1 className="set-title">Pengaturan Acara</h1>
 
       <div className="set-list">
-        {/* Nama */}
         <label className="set-row col">
           <span className="set-label">✏️ Nama acara</span>
           <input
@@ -117,9 +115,9 @@ export default function Settings() {
                 e.target.value.split(',').map((x) => x.trim()).filter(Boolean)
               )
             }
-            placeholder="/covers/cover1.jpg"
+            placeholder="/covers/cover.jpg"
           />
-          <span className="set-help">File ditaruh di public/covers/ lalu tulis path-nya</span>
+          <span className="set-help">File di public/covers/ lalu tulis path-nya, mis. /covers/cover.jpg</span>
         </label>
 
         <label className="set-row col">
@@ -128,9 +126,7 @@ export default function Settings() {
             type="datetime-local"
             className="set-input"
             value={s.endsAt ? toLocalInput(s.endsAt) : ''}
-            onChange={(e) =>
-              update('endsAt', e.target.value ? new Date(e.target.value).toISOString() : null)
-            }
+            onChange={(e) => update('endsAt', parseLocalDateTime(e.target.value))}
           />
         </label>
 
@@ -140,11 +136,9 @@ export default function Settings() {
             type="datetime-local"
             className="set-input"
             value={s.revealAt ? toLocalInput(s.revealAt) : ''}
-            onChange={(e) =>
-              update('revealAt', e.target.value ? new Date(e.target.value).toISOString() : null)
-            }
+            onChange={(e) => update('revealAt', parseLocalDateTime(e.target.value))}
           />
-          <span className="set-help">Kosongkan = album selalu terbuka. Isi = foto baru terlihat setelah waktu ini.</span>
+          <span className="set-help">Kosongkan = selalu terbuka. Isi = foto terlihat setelah waktu ini.</span>
         </label>
 
         <label className="set-row col">
@@ -157,7 +151,6 @@ export default function Settings() {
             value={s.maxPhotosPerGuest}
             onChange={(e) => update('maxPhotosPerGuest', Math.max(1, Number(e.target.value) || 1))}
           />
-          <span className="set-help">Batas foto per nama tamu. Default dari config.ts.</span>
         </label>
 
         <label className="set-row col">
@@ -194,7 +187,7 @@ export default function Settings() {
         <Toggle
           icon="🚫"
           title="Sembunyikan nama pengunggah"
-          desc="Nama tamu disembunyikan di galeri (penjurian buta)."
+          desc="Nama tamu disembunyikan di galeri."
           on={s.hideUploaderName}
           onChange={(v) => update('hideUploaderName', v)}
         />
@@ -202,7 +195,7 @@ export default function Settings() {
         <Toggle
           icon="♥"
           title="Like foto"
-          desc="Tamu bisa menyukai setiap foto. Nonaktifkan untuk menyembunyikan tombol like."
+          desc="Tamu bisa like/unlike setiap foto."
           on={s.enableLikes}
           onChange={(v) => update('enableLikes', v)}
         />
@@ -216,7 +209,7 @@ export default function Settings() {
       </button>
 
       <p className="hint" style={{ marginTop: 20 }}>
-        Pengaturan disimpan di perangkat ini (localStorage). Untuk nama/batas permanen di semua perangkat, ubah juga <code>src/lib/config.ts</code> lalu deploy ulang.
+        Pengaturan disimpan di perangkat ini (localStorage). Untuk permanen di semua perangkat, ubah juga <code>src/lib/config.ts</code> lalu deploy ulang.
       </p>
 
       <style>{baseCss}</style>
@@ -241,10 +234,25 @@ function Toggle({
 }
 
 function toLocalInput(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '';
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `\( {d.getFullYear()}- \){pad(d.getMonth() + 1)}-\( {pad(d.getDate())}T \){pad(d.getHours())}:${pad(d.getMinutes())}`;
+  } catch {
+    return '';
+  }
+}
+
+function parseLocalDateTime(value: string): string | null {
+  if (!value || !value.trim()) return null;
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch {
+    return null;
+  }
 }
 
 const baseCss = `
@@ -297,6 +305,7 @@ const baseCss = `
     background: #1c1c1c;
     color: #f5f0eb;
     font-size: 0.9rem;
+    color-scheme: dark;
   }
   .toggle-text { flex: 1; }
   .switch {
@@ -314,4 +323,3 @@ const baseCss = `
   .switch.on { background: #3b82f6; }
   .switch.on::after { transform: translateX(20px); }
 `;
- 

@@ -28,7 +28,7 @@ export const EVENT_CONFIG = {
   /**
    * Waktu ungkap album (ISO). null = selalu terbuka.
    */
-  revealAt: '2026-10-29T21:00:00+07:00' as string | null,
+  revealAt: null as string | null,
 
   /** Filter film default */
   defaultPresetId: 'funsaver',
@@ -52,3 +52,4 @@ export const EVENT_CONFIG = {
     hashtag: '#ajidananayu',
   },
 };
+

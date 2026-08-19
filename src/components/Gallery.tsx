@@ -9,7 +9,6 @@ import {
 import { EVENT_CONFIG } from '../lib/config';
 import { loadSettings } from '../lib/settings';
 
-
 function formatRevealCountdown(revealAt: string | null): string | null {
   if (!revealAt) return null;
   const end = new Date(revealAt).getTime();
@@ -29,8 +28,30 @@ function formatRevealCountdown(revealAt: string | null): string | null {
 function formatRevealLabel(revealAt: string): string {
   const d = new Date(revealAt);
   if (Number.isNaN(d.getTime())) return '';
-  const months = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
-  return `${d.getDate()} ${months[d.getMonth()]}, ${String(d.getHours()).padStart(2,'0')}.${String(d.getMinutes()).padStart(2,'0')}`;
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  return `${d.getDate()} ${months[d.getMonth()]}, \( {String(d.getHours()).padStart(2, '0')}. \){String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/** Baca revealAt: null/kosong di Settings = MATIKAN reveal (tidak fallback ke config) */
+function resolveRevealAt(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem('albumku_settings');
+    if (raw) {
+      const parsed = JSON.parse(raw) as { revealAt?: string | null };
+      if ('revealAt' in parsed) {
+        const v = parsed.revealAt;
+        if (v == null || v === '' || v === 'null') return null;
+        if (Number.isNaN(new Date(v).getTime())) return null;
+        return v;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  const fromConfig = (EVENT_CONFIG as { revealAt?: string | null }).revealAt;
+  if (fromConfig == null || fromConfig === '') return null;
+  return fromConfig;
 }
 
 export default function Gallery() {
@@ -41,20 +62,22 @@ export default function Gallery() {
   const [filterGuest, setFilterGuest] = useState<'all' | string>('all');
   const [error, setError] = useState<string | null>(null);
   const [likes, setLikes] = useState<Record<string, number>>({});
+  const [myLiked, setMyLiked] = useState<Record<string, boolean>>({});
+  const [revealAt, setRevealAt] = useState<string | null>(null);
 
   const sharedAlbum = isCloudEnabled && Boolean(EVENT_CONFIG.eventId);
   const settings = typeof window !== 'undefined' ? loadSettings() : null;
   const enableLikes = settings?.enableLikes !== false;
-  const revealAt =
-    settings?.revealAt ?? EVENT_CONFIG.revealAt ?? null;
-  const isRevealed =
-    !revealAt || Date.now() >= new Date(revealAt).getTime();
+  const isRevealed = !revealAt || Date.now() >= new Date(revealAt).getTime();
 
   useEffect(() => {
     try {
       setMyName(localStorage.getItem('guest_name') || '');
       const raw = localStorage.getItem('albumku_likes');
       if (raw) setLikes(JSON.parse(raw));
+      const liked = localStorage.getItem('albumku_my_liked');
+      if (liked) setMyLiked(JSON.parse(liked));
+      setRevealAt(resolveRevealAt());
     } catch {
       /* ignore */
     }
@@ -113,16 +136,51 @@ export default function Gallery() {
     a.click();
   }
 
-  async function sharePhoto(photo: StoredPhoto) {
+  function toggleLike(id: string) {
+    setMyLiked((prevLiked) => {
+      const isLiked = !!prevLiked[id];
+      const nextLiked = { ...prevLiked, [id]: !isLiked };
+      try {
+        localStorage.setItem('albumku_my_liked', JSON.stringify(nextLiked));
+      } catch {
+        /* ignore */
+      }
+
+      setLikes((prev) => {
+        const cur = prev[id] || 0;
+        const nextCount = isLiked ? Math.max(0, cur - 1) : cur + 1;
+        const next = { ...prev, [id]: nextCount };
+        try {
+          localStorage.setItem('albumku_likes', JSON.stringify(next));
+        } catch {
+          /* ignore */
+        }
+        return next;
+      });
+
+      return nextLiked;
+    });
+  }
+
+  function shareWhatsApp(_photo: StoredPhoto) {
+    const pageUrl =
+      typeof window !== 'undefined' ? window.location.origin + '/gallery' : '';
+    const title = EVENT_CONFIG.name || 'Album';
+    const text = `Lihat momen di \( {title} ✨\n \){pageUrl}`;
+    window.open(
+      `https://wa.me/?text=${encodeURIComponent(text)}`,
+      '_blank',
+      'noopener,noreferrer'
+    );
+  }
+
+  async function shareInstagram(photo: StoredPhoto) {
     const src = photoSrc(photo);
-    if (!src) return;
-    const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
-    const title = EVENT_CONFIG.polaroid?.title || EVENT_CONFIG.name;
-    const text = `${title} — ${EVENT_CONFIG.polaroid?.subtitle || ''}`;
+    const pageUrl =
+      typeof window !== 'undefined' ? window.location.origin + '/gallery' : '';
 
     try {
-      // Coba bagikan file (bagus untuk Instagram Stories via share sheet HP)
-      if (navigator.share) {
+      if (navigator.share && src) {
         let file: File | null = null;
         try {
           const res = await fetch(src);
@@ -131,21 +189,28 @@ export default function Gallery() {
             type: blob.type || 'image/jpeg',
           });
         } catch {
-          /* fetch gagal (CORS) — tetap share URL */
+          /* fetch gagal */
         }
 
         if (file && navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file], title, text });
+          await navigator.share({
+            files: [file],
+            title: EVENT_CONFIG.name,
+            text: `Momen ${EVENT_CONFIG.name}`,
+          });
           return;
         }
-        await navigator.share({ title, text, url: pageUrl });
+        await navigator.share({
+          title: EVENT_CONFIG.name,
+          text: pageUrl,
+          url: pageUrl,
+        });
         return;
       }
     } catch (err: unknown) {
       if ((err as Error)?.name === 'AbortError') return;
     }
 
-    // Fallback: unduh + salin link (Instagram tidak punya share URL resmi)
     try {
       await navigator.clipboard?.writeText(pageUrl);
     } catch {
@@ -153,21 +218,8 @@ export default function Gallery() {
     }
     downloadPhoto(photo);
     alert(
-      'Foto diunduh. Untuk Instagram Stories: buka Instagram → buat Story → pilih foto dari galeri. Link album sudah disalin.'
+      'Foto diunduh & link disalin.\n\nInstagram Stories:\n1. Buka Instagram\n2. Buat Story\n3. Pilih foto dari galeri'
     );
-  }
-
-  /** Like bisa di-spam (setiap tap +1) */
-  function toggleLike(id: string) {
-    setLikes((prev) => {
-      const next = { ...prev, [id]: (prev[id] || 0) + 1 };
-      try {
-        localStorage.setItem('albumku_likes', JSON.stringify(next));
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
   }
 
   if (loading && photos.length === 0) {
@@ -184,7 +236,12 @@ export default function Gallery() {
       <div className="g-empty">
         <p className="empty-title">Gagal memuat</p>
         <p className="empty-sub">{error}</p>
-        <button type="button" className="btn-primary" style={{ marginTop: 20, maxWidth: 240 }} onClick={() => load()}>
+        <button
+          type="button"
+          className="btn-primary"
+          style={{ marginTop: 20, maxWidth: 240 }}
+          onClick={() => load()}
+        >
           Coba lagi
         </button>
         <style>{css}</style>
@@ -276,7 +333,16 @@ export default function Gallery() {
               />
               {!isRevealed && revealAt && (
                 <div className="lock-overlay">
-                  <svg className="lock-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg
+                    className="lock-ico"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden
+                  >
                     <circle cx="12" cy="12" r="9" />
                     <path d="M12 7v5l3 2" />
                   </svg>
@@ -286,11 +352,18 @@ export default function Gallery() {
             </div>
             {!isRevealed ? (
               <div className="polaroid-cap">
-                <span className="pol-title">{EVENT_CONFIG.polaroid?.title || EVENT_CONFIG.name}</span>
-                {EVENT_CONFIG.polaroid?.hashtag && (
-                  <span className="pol-tag">{EVENT_CONFIG.polaroid.hashtag}</span>
+                <span className="pol-title">
+                  {(EVENT_CONFIG as { polaroid?: { title?: string } }).polaroid?.title ||
+                    EVENT_CONFIG.name}
+                </span>
+                {(EVENT_CONFIG as { polaroid?: { hashtag?: string } }).polaroid?.hashtag && (
+                  <span className="pol-tag">
+                    {(EVENT_CONFIG as { polaroid?: { hashtag?: string } }).polaroid?.hashtag}
+                  </span>
                 )}
-                <span className="pol-date">{EVENT_CONFIG.polaroid?.subtitle || ''}</span>
+                <span className="pol-date">
+                  {(EVENT_CONFIG as { polaroid?: { subtitle?: string } }).polaroid?.subtitle || ''}
+                </span>
               </div>
             ) : (
               <div className="photo-meta">
@@ -318,18 +391,38 @@ export default function Gallery() {
             </div>
             <div className="lb-actions">
               {enableLikes && (
-                <button type="button" className="chip like-btn" onClick={() => toggleLike(selected.id)}>
-                  ♥ Like{(likes[selected.id] || 0) > 0 ? ` (${likes[selected.id]})` : ''}
+                <button
+                  type="button"
+                  className={`chip ${myLiked[selected.id] ? 'like-on' : ''}`}
+                  onClick={() => toggleLike(selected.id)}
+                >
+                  {myLiked[selected.id] ? '♥ Unlike' : '♡ Like'}
+                  {(likes[selected.id] || 0) > 0 ? ` (${likes[selected.id]})` : ''}
                 </button>
               )}
-              <button type="button" className="chip" onClick={() => sharePhoto(selected)}>
-                ↗ Bagikan
+              <button
+                type="button"
+                className="chip share-wa"
+                onClick={() => shareWhatsApp(selected)}
+              >
+                WhatsApp
+              </button>
+              <button
+                type="button"
+                className="chip share-ig"
+                onClick={() => shareInstagram(selected)}
+              >
+                Instagram
               </button>
               <button type="button" className="chip" onClick={() => downloadPhoto(selected)}>
                 Unduh
               </button>
               {(!myName || selected.guestName === myName) && (
-                <button type="button" className="chip danger" onClick={() => handleDelete(selected.id)}>
+                <button
+                  type="button"
+                  className="chip danger"
+                  onClick={() => handleDelete(selected.id)}
+                >
                   Hapus
                 </button>
               )}
@@ -375,6 +468,9 @@ const css = `
   }
   .chip.active { background: #f0ebe3; color: #0a0a0a; border-color: #f0ebe3; }
   .chip.danger { color: #fca5a5; border-color: rgba(252,165,165,0.25); }
+  .chip.like-on { color: #f9a8d4; border-color: rgba(249,168,212,0.4); background: rgba(249,168,212,0.12); }
+  .chip.share-wa { color: #86efac; border-color: rgba(134,239,172,0.35); }
+  .chip.share-ig { color: #f9a8d4; border-color: rgba(249,168,212,0.35); }
   .photo-grid {
     display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
   }
@@ -395,6 +491,55 @@ const css = `
   .photo-guest { display: block; color: #fff; font-size: 0.7rem; font-weight: 600; }
   .photo-preset { display: block; color: #a8a29e; font-size: 0.6rem; }
   .photo-likes { display: block; color: #f9a8d4; font-size: 0.65rem; margin-top: 2px; }
+
+  .reveal-hero { text-align: center; margin: 4px 0 18px; }
+  .reveal-label { font-size: 0.8rem; color: #8a8580; margin-bottom: 4px; }
+  .reveal-count {
+    font-family: var(--font-serif), Georgia, serif;
+    font-style: italic; font-weight: 400;
+    font-size: clamp(1.9rem, 8vw, 2.6rem);
+    color: #f5f0eb; letter-spacing: -0.02em; line-height: 1.05;
+  }
+  .photo-grid.polaroid-mode {
+    grid-template-columns: 1fr; max-width: 240px; margin: 0 auto; gap: 16px;
+  }
+  @media (min-width: 420px) {
+    .photo-grid.polaroid-mode {
+      grid-template-columns: repeat(2, 1fr); max-width: 100%; gap: 14px;
+    }
+  }
+  .photo-card.polaroid {
+    aspect-ratio: auto; background: #f7f4ef; border: none; border-radius: 2px;
+    padding: 8px 8px 10px; box-shadow: 0 6px 22px rgba(0,0,0,0.4);
+    cursor: default; overflow: visible;
+  }
+  .polaroid-photo {
+    position: relative; aspect-ratio: 1; overflow: hidden; background: #1a1a1a;
+  }
+  .polaroid-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .polaroid-photo img.blurred {
+    filter: blur(14px) brightness(0.62); transform: scale(1.1);
+  }
+  .lock-overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 4px; color: rgba(255,255,255,0.92); background: rgba(0,0,0,0.12);
+    pointer-events: none;
+  }
+  .lock-ico { width: 18px; height: 18px; opacity: 0.9; }
+  .lock-date { font-size: 0.68rem; font-weight: 500; letter-spacing: 0.03em; }
+  .polaroid-cap {
+    text-align: center; margin-top: 8px;
+    display: flex; flex-direction: column; gap: 1px; padding: 0 2px;
+  }
+  .pol-title {
+    font-family: var(--font-serif), Georgia, serif;
+    font-style: italic; font-weight: 500; font-size: 1.35rem;
+    color: #1a1a1a; line-height: 1.15;
+  }
+  .pol-tag { font-size: 0.62rem; color: #a8a29e; }
+  .pol-date { font-size: 0.62rem; color: #a8a29e; }
+
   .lightbox {
     position: fixed; inset: 0; background: rgba(0,0,0,0.94); z-index: 100;
     display: flex; align-items: center; justify-content: center; padding: 20px;
@@ -408,111 +553,4 @@ const css = `
   .lb-meta strong { display: block; color: #f5f0eb; font-size: 0.95rem; }
   .lb-preset { display: block; font-size: 0.75rem; margin-top: 2px; }
   .lb-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-  .like-btn { color: #f9a8d4; border-color: rgba(249,168,212,0.35); }
-  .like-btn:active { transform: scale(0.95); }
-
-  .reveal-hero {
-    text-align: center;
-    margin: 4px 0 18px;
-  }
-  .reveal-label {
-    font-size: 0.8rem;
-    color: #8a8580;
-    margin-bottom: 4px;
-  }
-  .reveal-count {
-    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
-    font-style: italic;
-    font-weight: 400;
-    font-size: clamp(1.9rem, 8vw, 2.6rem);
-    color: #f5f0eb;
-    letter-spacing: -0.02em;
-    line-height: 1.05;
-  }
-
-  .photo-grid.polaroid-mode {
-    grid-template-columns: 1fr;
-    max-width: 240px;
-    margin: 0 auto;
-    gap: 16px;
-  }
-  @media (min-width: 420px) {
-    .photo-grid.polaroid-mode {
-      grid-template-columns: repeat(2, 1fr);
-      max-width: 100%;
-      gap: 14px;
-    }
-  }
-
-  .photo-card.polaroid {
-    aspect-ratio: auto;
-    background: #f7f4ef;
-    border: none;
-    border-radius: 2px;
-    padding: 8px 8px 10px;
-    box-shadow: 0 6px 22px rgba(0,0,0,0.4);
-    cursor: default;
-    overflow: visible;
-  }
-  .polaroid-photo {
-    position: relative;
-    aspect-ratio: 1;
-    overflow: hidden;
-    background: #1a1a1a;
-  }
-  .polaroid-photo img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-  .polaroid-photo img.blurred {
-    filter: blur(14px) brightness(0.62);
-    transform: scale(1.1);
-  }
-  .lock-overlay {
-    position: absolute; inset: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 4px;
-    color: rgba(255,255,255,0.92);
-    background: rgba(0,0,0,0.12);
-    pointer-events: none;
-  }
-  .lock-ico {
-    width: 18px;
-    height: 18px;
-    opacity: 0.9;
-  }
-  .lock-date {
-    font-size: 0.68rem;
-    font-weight: 500;
-    letter-spacing: 0.03em;
-    opacity: 0.92;
-  }
-  .polaroid-cap {
-    text-align: center;
-    margin-top: 8px;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    padding: 0 2px;
-  }
-  .pol-title {
-    font-family: "Cormorant Garamond", var(--font-serif), Georgia, serif;
-    font-style: italic;
-    font-weight: 500;
-    font-size: 1.35rem;
-    color: #1a1a1a;
-    line-height: 1.15;
-  }
-  .pol-tag { font-size: 0.62rem; color: #a8a29e; letter-spacing: 0.02em; }
-  .pol-date { font-size: 0.62rem; color: #a8a29e; }
-
-  .lb-content img {
-    background: #f7f4ef;
-    padding: 14px 14px 56px;
-    border-radius: 2px;
-    border: none !important;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.45);
-  }
 `;
