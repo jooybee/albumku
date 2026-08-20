@@ -33,7 +33,7 @@ function formatRevealLabel(revealAt: string): string {
   ];
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
-  return `${d.getDate()} ${months[d.getMonth()]}, \( {hh}. \){mm}`;
+  return d.getDate() + ' ' + months[d.getMonth()] + ', ' + hh + '.' + mm;
 }
 
 export default function Gallery() {
@@ -146,17 +146,6 @@ export default function Gallery() {
     });
   }
 
-  function shareWhatsApp(_photo: StoredPhoto) {
-    const pageUrl =
-      typeof window !== 'undefined' ? window.location.origin + '/gallery' : '';
-    const title = EVENT_CONFIG.name || 'Album';
-    const text = `Lihat momen di \( {title} ✨\n \){pageUrl}`;
-    window.open(
-      `https://wa.me/?text=${encodeURIComponent(text)}`,
-      '_blank',
-      'noopener,noreferrer'
-    );
-  }
 
   async function shareInstagram(photo: StoredPhoto) {
     const src = photoSrc(photo);
