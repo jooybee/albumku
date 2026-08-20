@@ -269,7 +269,7 @@ export default function JoinScreen() {
           <div className="sheet-backdrop" onClick={() => setShowQr(false)}>
             <div className="sheet" onClick={(e) => e.stopPropagation()}>
               <div className="sheet-handle" />
-              <h2 className="sheet-title">Abadikan momen bersama.</h2>
+              <h2 className="sheet-title">Undang tamu ke acaramu.</h2>
               <p className="sheet-sub">
                 Setiap tamu bisa ambil foto dari sudut pandang mereka.<br />Semua momen terkumpul di satu album bersama.
               </p>
@@ -384,11 +384,11 @@ export default function JoinScreen() {
             />
           </div>
           <button type="submit" className="btn-primary" disabled={!name.trim()}>
-            Abadikan momen →
+            Ikut partisipasi →
           </button>
         </form>
         <a href="/gallery" className="btn-outline" style={{ marginTop: 12 }}>
-          Lihat album bersama
+          Lihat galeri bersama
         </a>
       </div>
       <style>{joinCss}</style>

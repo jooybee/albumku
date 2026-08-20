@@ -6,7 +6,7 @@
 
 export const EVENT_CONFIG = {
   /** Nama acara (judul besar) */
-  name: 'Our Wedding Day',
+  name: 'Galeri Bersama',
 
   /** Nama yang mengundang */
   hostName: 'Aji & Ayu',
@@ -23,12 +23,12 @@ export const EVENT_CONFIG = {
   /**
    * Waktu berakhir (ISO) atau null = tanpa countdown.
    */
-  endsAt: null as string | null,
+  endsAt: '2026-10-29T18:00:00+07:00' as string | null,
 
   /**
    * Waktu ungkap album (ISO). null = selalu terbuka.
    */
-  revealAt: null as string | null,
+  revealAt: '2026-08-20T23:00:00+07:00' as string | null,
 
   /** Filter film default */
   defaultPresetId: 'funsaver',
